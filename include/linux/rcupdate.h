@@ -59,6 +59,8 @@ extern int rcu_scheduler_active;
 #include <linux/rcuclassic.h>
 #elif defined(CONFIG_TREE_RCU)
 #include <linux/rcutree.h>
+#elif defined(CONFIG_TINY_RCU)
+#include <linux/rcutiny.h>
 #elif defined(CONFIG_PREEMPT_RCU)
 #include <linux/rcupreempt.h>
 #else
@@ -270,5 +272,4 @@ extern void rcu_barrier_sched(void);
 extern void rcu_init(void);
 extern void rcu_scheduler_starting(void);
 extern int rcu_needs_cpu(int cpu);
-
 #endif /* __LINUX_RCUPDATE_H */

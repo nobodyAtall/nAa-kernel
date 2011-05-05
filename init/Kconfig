@@ -271,6 +271,15 @@ config PREEMPT_RCU
 	  now-naive assumptions about each RCU read-side critical section
 	  remaining on a given CPU through its execution.
 
+config TINY_RCU
+	bool "UP-only small-memory-footprint RCU"
+	depends on !SMP
+	help
+	  This option selects the RCU implementation that is
+	  designed for UP systems from which real-time response
+	  is not required.  This option greatly reduces the
+	  memory footprint of RCU.
+
 endchoice
 
 config RCU_TRACE
