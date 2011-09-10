@@ -1,0 +1,303 @@
+Introduction
+============
+
+Audio routing driver is based on alsa mixer control and is responsible for
+routing configuration for all audio streams and voice calls. The driver is
+responsible for maintaining the state of routing information and
+needs to handle all routing configuration at desired call flow of
+audio/voice session setup.
+
+This driver is designed to make all audio drivers independent of the
+routing configuration. This driver is designed to take care of any dynamic
+changes in routing for a running session. In addition to this the driver
+may enable and disable any device based on the user configuration.
+
+Hardware description
+====================
+
+The driver interfaces with existing device drivers to manage (enable/disable)
+the audio/voice devices to help proper routing. This driver is independent of
+the underlying hardware specification. The ALSA driver uses capabilities of
+other drivers to manage the state of hardware and the path of audio/voice
+session. Hence hardware description is not required.
+
+Software description
+====================
+
+The ALSA driver comprises of three main sections of code.
+
+1.	The user space interface
+The user space interface is based on opensource package of Advanced Linux
+Sound Architecture (ALSA). ALSA provided mixer control framework to implement
+standard controls. The ALSA driver uses this feature to implement routing
+controls and device settings. This section is also responsible to propagate
+any change in routing to the underlying DSP interface.
+
+2.	Session state management.
+The interface section above provides input on routing which is used to manage
+the session state. This part of code is responsible to keep track of the
+routing configurations currently done.
+
+3.	Device state management.
+The lists of registered devices that are available to support routing are
+maintained here. The driver maintains a list to which each device present must
+register to enable routing to them. The driver also enables/disables using
+registered callbacks from the devices.
+
+Together the above mentioned sections, maintain the list of all devices
+registered and each session that gets routed to them. In case user requests
+routing to any device that is not registered, the user is notified about the
+non existence of the device using error messages.
+
+Due to the capability to route audio to/from multi device, the user has
+responsibility to set the routing info before the session starts. After the
+session is closed all routing info for the session will be deleted. The audio
+driver gets a call from audpp/audpreproc driver informing any session start or
+close triggering the operation of sending routing info to dsp. The user also
+needs to enable the device before starting the session as unless that is done
+no audio would be heard or recorded.
+
+The driver resides under ALSA System On Chip (SOC) framework and will handshake
+with audio_dev_ctrl driver to do all devices and route configurations. The
+driver audio_dev_ctrl.c holds all audio routing databases, current status of
+devices enabled and running, the streams status and the routing info for each
+stream. Thus all device available in system needs to register with the APIs in
+audio_dev_ctrl to inform their presence and file operations details.
+
+Design
+======
+
+Design Goals:
+-------------
+
+- Design a ALSA based routing interface
+
+Driver functionality:
+---------------------
+The driver is responsible for
+	- Setting Device registration.
+	- Maintaining the current state of the registered device.
+	- Setting Device enable/disable for registered device.
+	- Setting routing info for the following.
+		-- Support for playback and capture path routing.
+		-- Support Voice path routing.
+	- Clearing any cached routing info when any session is closed.
+	- Supporting volume control for playback streams.
+	- Supporting volume control for Voice path.
+	- Supporting listener registration from different decoder/encoder/voice
+		drivers to propagate any event listed above
+Protocols and handshaking between driver layers:
+------------------------------------------------
+
+-The userspace opens a session of decoder/encoder driver and queries the session
+id. This session is then used either as dec_id or enc_id based on the session
+type.
+
+USERSPACE    	     DRIVER
+    |		           |
+    |======= open ========>|
+    |<---result(errno/0)---|
+    |                      |
+    |=== GET_SESSION_ID ==>|
+    |<---  session id  ----|
+    |		           |
+
+-The user space code initially opens the session by call to msm_mixer_open which
+opens a session of /dev/controlC0 dev node.
+
+-Then a call to msm_en_device(1) enables device by issuing an ioctl call
+SNDRV_CTL_IOCTL_ELEM_WRITE to write to the element. The msm_device_put function
+associated with write operation is called which queries the device info by
+calling audio_dev_ctrl_find_dev followed by the open call for the device.
+
+-On successful enabling of device the call to msm_route_stream is done to
+route the session already opened to the opened device. This call sets a flag
+for the routing mask by call to msm_snddev_set_dev.
+
+USERSPACE    	   ALSA LIBRARY                 ALSA DRIVER      AUDIO_DEV_CTRL
+|		       |                              |                       |
+|== msm_mixer_open ==> |                              |                       |
+|                      |-----------  open   --------> |                       |
+|                      |<---- success(0)/failure ---- |                       |
+|<---- success(0) ---- |                              |                       |
+|		       |                              |                       |
+|		       |                              |                       |
+|== msm_en_device(1)==>|                              |                       |
+|                      |--SNDRV_CTL_IOCTL_ELEM_WRITE->|	                      |
+|                      |       msm_device_put(1)      |                       |
+|                      |                              |audio_dev_ctrl_find_dev|
+|                      |                              |-----dev_ops.open----->|
+|                      |                              |<--- result(errno/0)---|
+|                      |<----success(0)/failure(1)--- |                       |
+|<---result(errno/0)---|                              |                       |
+|		       |                              |                       |
+|		       |                              |                       |
+|== msm_route_stream==>|                              |                       |
+| (1,0,id_handset_rx,1)|                              |                       |
+|                      |--SNDRV_CTL_IOCTL_ELEM_WRITE->|	                      |
+|                      |       msm_stream_put         |                       |
+|                      |    (1,0,id_handset_rx,1)     |                       |
+|		       |                              |                       |
+|                      |                              |audio_dev_ctrl_find_dev|
+|                      |                              |--msm_snddev_set_dev-->|
+|                      |                              |<--- result(errno/0)---|
+|                      |<----success(0)/failure(1)--- |                       |
+|<---result(errno/0)---|                              |                       |
+
+-The decoder driver would use this mask to send CMD_CFG_DEV_MIXER command.
+
+<-------------------------DECODER/ENCODER/VOICE Session----------------------->
+
+
+-After the session is over the steps are followed in reverse to deroute the
+session, disable the device and finally close the mixer instance.
+
+
+|== msm_route_stream==>|                              |                       |
+| (1,0,id_handset_rx,1)|                              |                       |
+|                      |--SNDRV_CTL_IOCTL_ELEM_WRITE->|	                      |
+|                      |       msm_stream_put         |                       |
+|                      |    (1,0,id_handset_rx,1)     |                       |
+|		       |                              |                       |
+|                      |                              |audio_dev_ctrl_find_dev|
+|                      |                              |-----dev_ops.close---->|
+|                      |                              |<--- result(errno/0)---|
+|                      |<----success(0)/failure(1)--- |                       |
+|<---result(errno/0)---|                              |                       |
+|		       |                              |                       |
+|		       |                              |                       |
+|== msm_en_device(0)==>|                              |                       |
+|                      |--SNDRV_CTL_IOCTL_ELEM_WRITE->|	                      |
+|                      |    msm_device_put(0)         |                       |
+|                      |                              |audio_dev_ctrl_find_dev|
+|                      |                              |-----dev_ops.close---->|
+|                      |                              |<--- result(errno/0)---|
+|                      |<----success(0)/failure(1)--- |                       |
+|<---result(errno/0)---|                              |                       |
+|		       |                              |                       |
+|		       |                              |                       |
+|== msm_mixer_close ==>|                              |                       |
+|                      |-----------  close  --------> |                       |
+|                      |<---- success(0)/failure ---- |                       |
+|<---- success(0) ---- |                              |                       |
+|		       |                              |                       |
+|		       |                              |                       |
+
+
+
+Power Management
+================
+
+No Power management feature is required for this driver.
+
+SMP/multi-core
+==============
+
+The driver needs to implement the following locks to sync between multiple
+sessions.
+
+.	mutex write_dsp_lock
+To sync all write to dsp for mixer configuration.
+.	mutex mixer_lock
+To sync all operations shared by different instances of mixer controls.
+
+
+Interface
+=========
+
+The driver allows mixer controls to do these operations.
+
+.	session
+This interface is used to route audio for each session. The number of sessions
+is configurable and may change based on the architecture and is passed as a
+parameter to this control.
+
+parameters:
+	1>dec_id: the session instance received from AUDIO_GET_SESSION_ID ioctl
+	call to the decoder/encoder session.
+
+	2>dev_id: the device number to which the stream would be routed to.
+	The list of device varies and can be retried by listing the mixer
+	controls by the following command
+	$ amixer controls
+
+	3>set: flag to specify if the routing info is to set or reset the routing.
+
+.	Device set/reset
+Device set is used for setting and resetting the device endpoint.
+
+parameters:
+	1>dev_id: the device number which needs to be enabled/disabled.
+	2>set: the operation (1 for opening the device/0 for closing the device)
+
+.	Voice
+This interface is used to route the voice call in event of receiving AQUIRE
+event from DSP. No other interfaces are available though proc or any other
+filesystem. The only interface is through ALSA framework.
+
+parameters:
+	1>tx_device_id: the device number to which the tx_stream would be
+	recorded from.
+	2>rx_device_id: the device number to which the rx_stream would be
+	played to.
+	3>set: flag to specify if the routing info is to set or reset the
+	routing.
+
+Driver parameters
+=================
+
+The driver is modular but takes no parameters.
+
+Config options
+==============
+
+This driver uses MM_ERR, MM_INFO and MM_DBG macros for log messages. These
+macros are defined back as standard linux kernel calls such as pr_err, pr_info
+and pr_debug respectively. By default MM_ERR and MM_INFO statements are enabled.
+These are enabled according to the debug level defined in the debug header file
+(debug_audio_mm.h) which is common for all audio decoder drivers. The debug
+level is set to '2' by default. To enable MM_DBG messages which gives more debug
+information, the debug level has to be increased to '3' in debug header file.
+Changing this debug level affects entire audio module i.e. the debug level is
+changed for all the audio drivers.
+
+Dependencies
+============
+
+The driver does not make any calls directly. The driver only uses the AUDPP
+driver exported functions.
+
+arch/arm/mach-msm/qdsp5v2/audpp.c
+
+also the driver is divided into two codes.
+
+1> arch/arm/mach-msm/qdsp5v2/audio_dev_ctrl.c
+2> sound/soc/msm/msm7x30.c
+
+these two code sections would communicate through exported APIs.
+
+
+User space utilities
+====================
+
+User space can either directly interact to kernel driver using the device node
+"/dev/snd/Control0" or use below mentioned standard opensource package from
+www.alsa-project.org
+
+.	alsa-lib v1.0.19 or more
+.	alsa-util v1.0.19 or more
+
+Other
+=====
+
+No ARM specific code changed for this driver. The driver resides in sound/soc/msm
+
+Known issues
+============
+
+NA
+
+To do
+=====
+
+NA

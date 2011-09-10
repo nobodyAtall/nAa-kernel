@@ -1,0 +1,2 @@
+export ARCH=arm
+export CROSS_COMPILE=/opt/android-ndk-r4b/build/prebuilt/linux-x86/arm-eabi-4.4.0/bin/arm-eabi-

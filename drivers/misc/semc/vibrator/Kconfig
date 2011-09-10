@@ -1,0 +1,10 @@
+comment "SEMC vibrator driver for msm-pmic platform"
+
+config SEMC_MSM_PMIC_VIBRATOR
+        tristate "Semc msm pmic vibrator"
+        default y
+		select semcclass
+		depends on (ARCH_MSM7X27 || ARCH_QSD8X50)
+		help
+          Vibrator driver for msm pmic platform
+          msm-pmic-vibrator.ko

@@ -1,0 +1,169 @@
+Introduction
+============
+
+This kernel driver is for the offline image rotator driver introduced in the
+7x30 SOC.  The image rotator block is capable of rotating an image of
+various formats any of 8 possible rotation/flip combinations.
+
+Hardware description
+====================
+
+The image rotator block requires the address of the input image, the address
+to store the output image, and the format information in order to perform
+the rotation.  Upon completion it generates an interrupt to the processor.
+
+The image rotator block can rotate 64x64 tiles using its internal memory.
+However, it is more efficient if it uses iMem (when available) and can rotate
+128x128 tiles.  In the 7x30 design, the iMem used by the rotator is also used
+by the JPEG hardware.  Therefore, the two drivers must coordinate access.
+
+Software description
+====================
+
+The rotator driver uses the standard init, open, release, and exit driver
+interfaces for initialization and deinitialization.
+
+The driver uses the standard ioctl interface for performing the rotation.
+The ioctl receives 3 ioctls:  One with the image information for setup,
+one with the memory locations (which will perform the rotation, and one to
+delete the image setup information.
+
+The driver provides exported functions msm_rotator_imem_allocate and
+msm_rotator_imem_free that are used to coordinate access of the shared
+iMem region.
+
+Design
+======
+
+Requirements:
+The driver supports the image types defined in msm_mdp.h.
+The input and output images are stored in PMEM.
+The driver supports suspend/resume.
+The driver provides a method to control access to the shared iMem where
+priority is given to the JPEG driver.
+
+Device Node:
+The driver creates a device node /dev/msm_rotator.
+
+msm_rotator_ioctl():
+The msm_rotator_ioctl() function supports 3 ioctls.
+MSM_ROTATOR_IOCTL_START:
+	This ioctl is used to pass in the image information (size, offset,
+	format).  The ioctl passes back a "session id" to the caller.  The
+	caller must pass the session id back to the ioctl for subsequent calls.
+	A maximum of 16 concurrent sessions are supported by the driver.
+MSM_ROTATOR_IOCTL_ROTATE:
+	Through this ioctl, the driver receives the PMEM ids for the input and
+	output images.  The caller also supplies the session id returned from
+	MSM_ROTATOR_IOCTL_START.  This ioctl will perform the rotation.  It is
+	blocking.
+	The ioctl uses a mutex to serialize rotation requests.  When the driver
+	obtains the mutex, it attempts to allocate iMem by calling
+	msm_rotator_imem_allocate(), then the hardware block is programmed,
+	the interrupt is enabled, the rotation is started, and the function
+	waits for the completion interrupt.  Upon completion, the interrupt is
+	cleared and disabled in the hardware.
+MSM_ROTATOR_IOCTL_FINISH:
+	This ioctl is used to release the session id.
+
+msm_rotator_irq():
+This function is called when the rotation complete interrupt fires.  Clears
+the event and wakes the ioctl thread.
+
+msm_rotator_imem_allocate():
+The driver must coordinate access to iMem with the JPEG driver.  Priority is
+given to the JPEG driver.  The rotator driver exports this function,
+msm_rotator_imem_allocate().  This function allocates iMem for the caller.  A
+mutex is used to maintain ownership.  The function includes a parameter to
+specify which driver is requesting ownership.  If the caller is the JPEG
+driver, it uses mutex_lock() and blocks until the mutex is available.  If
+the caller is the rotator driver, it uses mutex_trylock() and returns
+failure.  Then the rotator driver can continue using the smaller, less
+efficient internal memory.
+
+msm_rotator_imem_free():
+This function is used to release exclusive access to iMem.
+
+
+Power Management
+================
+
+The rotator p-clock and imem-clocks are enabled when the driver's open()
+function is called and disabled when the release() function is called.
+
+Suspend and Resume functions disable and enable the rotator clocks and the irq.
+
+The ioctl will disable the irq upon completion to support idle sleep.  The
+ioctl will also start a 1 second inactivity timer to turn off the rotator clock.
+
+msm_rotator_imem_free() will start a similar timer to allow for turning off the
+rotator_imem clock for idle sleep.
+
+SMP/multi-core
+==============
+
+None.
+
+Security
+========
+
+None.
+
+Performance
+===========
+
+None.
+
+Interface
+=========
+
+MSM_ROTATOR_IOCTL_ROTATE : This ioctl is the request from the user to actually
+perform the rotation.
+
+msm_rotator_imem_allocate()/msm_rotator_imem_free() : Used to manage shared
+iMem resource with JPEG driver.
+
+Driver parameters
+=================
+
+None.
+
+Config options
+==============
+
+The driver can be enabled and disabled by the kernel config option MSM_ROTATOR.
+
+The kernel config option MSM_ROTATOR_USE_IMEM config option can be disabled
+if iMem is not available for use by the hardware block.  This option is set to
+'y' by default.  If this option is disabled, the hardware block is always
+programmed to use the internal memory and rotate 64x64 tiles.  This option also
+disables the iMem allocation steps.
+
+Dependencies
+============
+
+The rotator driver coordinates use of iMem with the JPEG driver as described
+above.
+
+The rotator driver uses the MSM clk driver to enable and disable the rotator
+clock.
+
+User space utilities
+====================
+
+The rotator driver will be used by the camera application.
+
+Other
+=====
+
+None.
+
+Known issues
+============
+
+None.
+
+To do
+=====
+
+None.

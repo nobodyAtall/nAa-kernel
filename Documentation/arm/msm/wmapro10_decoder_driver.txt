@@ -1,0 +1,613 @@
+Introduction
+============
+
+The WMAPRO10 decoder driver is an interface between the userspace applications
+and DSP WMAPRO10 hardware decoder. The basic use of the driver is to allow
+userspace playback of WMAPRO10 encoded bitstream.
+
+The driver supports two modes i.e. tunneled and non-tunneled. In tunneled mode
+the decoded data i.e. pcm samples are routed to the audio hardware device
+directly for playback whereas in case of non-tunneled mode the decoded data
+i.e. pcm samples are routed back to the userspace application which can be
+processed further(eg: post-processing, mixing etc).
+
+Hardware description
+====================
+
+This driver communicates with the hardware using other drivers like ADSP driver
+and AUDMGR driver and doesn't know details about the underlying hardware. The
+driver knows only the commands that needs to be sent and messages expected for
+these commands.
+
+Software description
+====================
+
+The WMAPRO10 decoder driver is a character device driver. Driver implements
+open, close, read, fsync, write and ioctl functions.
+
+open():
+In open call the driver will allocate the kernel buffers,initializes the audio
+system i.e. audmgr and dsp decoder task using RPC calls. Based on the flags
+passed in the parameter 'flags', the driver will acquire the resources required
+for operating the decoder in particular mode - tunnel or non-tunnel - O_WRONLY
+is for tunneled mode and O_RDWR for non-tunneled mode.
+
+read() and write():
+The read and write calls are used for data communication between userspace and
+the driver. The write call is used for writing the WMAPRO10 encoded bitstream
+to the driver and read call is used for reading the decoded pcm samples back in
+case of non-tunneled mode.
+
+ioctl():
+The ioctl function provides various commands for configuring and controlling
+the driver.
+
+fsync():
+The fsync call is used at the end of playback to ensure all the buffers sent are
+consumed properly before closing the driver. This call is used only in tunneled
+mode.
+
+close():
+The close call is used for releasing all the driver resources and the hardware
+instances.
+
+Driver functionality:
+---------------------
+
+1. Implements playback of WMAPRO10 encoded bitstream using DSP hardware decoder.
+
+2. Supports tunneled and non-tunneled modes of playback.
+
+3. Allows pause and resume functionality during playback.
+
+4. Allows flushing of buffers during playback.
+
+5. Allows dispatching of power suspend and resume events to userspace.
+
+6. Allows setting of post-processing features - volume, pan and equalizer.
+
+
+Control Paths:
+--------------
+
+The driver is configured and controlled using following ioctl commands:
+
+AUDIO_START: Starts a playback session.
+
+AUDIO_STOP: Stops and closes the playback session.
+
+AUDIO_GET_CONFIG: The default values of configuration parameters can be queried
+
+AUDIO_SET_CONFIG: Configuration parameters can be set using this command.
+                  eg: sampling rate and channel mode
+
+AUDIO_GET_WMA_CONFIG: Default values of WMAPRO10 decoder specific configuration
+                      parameters can be queried.
+
+AUDIO_SET_WMA_CONFIG: WMAPRO10 decoder configuration parameters can be set.
+                      eg: bitspersample, bytespersecond, packetlength,
+                          encodeoptions etc.
+
+AUDIO_GET_PCM_CONFIG: Query the mode (tunneled/non-tunneled) and output pcm
+                      buffer size and count available with driver in case of
+                      non-tunneled mode.
+
+AUDIO_SET_PCM_CONFIG: Set tunneled/non-tunneled mode and pcm buffer size
+                      and count allocated by the userspace
+
+AUDIO_FLUSH: Input buffers sent by userspace are flushed.
+
+AUDIO_SET_VOLUME: Specific volume value can be set using this command.
+
+AUDIO_SET_PAN: Specific PAN value can be set using this command.
+
+AUDIO_SET_EQ: Specific EQ value can be set using this command.
+
+
+Data Paths:
+-----------
+
+The data communication between userspace and driver is done using the read and
+write calls to the driver. The write call is used to write the WMAPRO10 encoded
+bitstream to the driver for playback. The read call is used by userspace for
+reading back the decoded pcm samples in case of non-tunneled mode. In tunneled
+mode read call is not used because the pcm samples are directly played on the
+selected output device (eg: speaker, headset).
+
+Driver uses pre-allocated buffers while writing and reading data. These buffers
+are allocated and released using the pmem driver API "pmem_kalloc" and
+"pmem_kfree".
+
+Design
+======
+
+Design Goals:
+-------------
+
+- Retain the existing native driver interface and architecture as much as
+  possible.
+
+Design Description:
+-------------------
+
+The driver is responsible for
+	-- configuring the required hardware using AUDMGR and ADSP drivers
+	-- accepting the required configuration parameters from userspace
+	-- configuring the dsp decoder according to the above set parameters
+	-- accepting wmapro10 bitstream from the userpsace
+	-- send the commands and bitstream, using the ADSP driver, to DSP for
+           decoding
+	-- send the pcm samples back to application in non-tunneled mode
+
+
+Protocols and handshaking between driver layers:
+------------------------------------------------
+
+The open call starts an audmgr session by calling "audmgr_open" an exported
+function by AUDMGR driver. This exported function communicates with A9 AUDMGR
+RPC server to setup RPC. On successful return of this function, "msm_adsp_get"
+an exported function from ADSP driver is called. This function is responsible
+for initializing the required module in DSP (AUDPLAYTASK).
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |		     |               |             |
+    |==== open ====> |--audmgr_open->| 	           |
+    |                |<--success(0)--|             |
+    |		     |               |             |
+    |                |------ msm_adsp_get -------> |
+    |	             |       (AUDPLAYTASK)	   |
+    |	             |<---- success(0)/failure ----|
+    |<--success(0)---|		     |             |
+    |   or failure   |               |             |
+
+The configuration parameters are set by the userspace using AUDIO_SET_CONFIG
+and AUDIO_SET_WMA_CONFIG ioctl commands. The default values can be queried
+using AUDIO_GET_CONFIG and AUDIO_GET_WMA_CONFIG ioctls commands. The GET_CONFIG
+and SET_CONFIG ioctl commands are used for generic parameters such as sampling
+rate and channel mode etc whereas GET_WMA_CONFIG and SET_WMA_CONFIG ioctl
+commands are used for WMAPRO10 decoder specific parameters such as bytespersec
+packetlength, encodeoption etc.
+
+In case of non-tunneled mode, AUDIO_GET_PCM_CONFIG and AUDIO_SET_PCM_CONFIG
+ioctl commands can be used to set the non-tunneled mode and pcm buffer size and
+count values. AUDIO_GET_PCM_CONFIG ioctl command can be used to get the default
+values of size and number of pcm buffers in driver to which the output pcm
+samples are written. Userspace can set a specific buffer size and also set the
+non-tunneled mode flag using AUDIO_SET_PCM_CONFIG ioctl command.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |		     |               |             |
+    |===GET_CONFIG==>|               | 	           |
+    |(default values)|               |             |
+    |<-config params-|               |             |
+    |		     |               |             |
+    |===SET_CONFIG==>|[PARAMS SENT TO| 	           |
+    |(set locally)   | DSP LATER IN  | 	           |
+    |<--success(0)---| AUDIO_START]  |             |
+    |		     |               |             |
+    |GET_WMA_CONFIG=>|               | 	           |
+    |(default values)|               |             |
+    |<-wmapro params-|               |             |
+    |		     |               |             |
+    |SET_WMA_CONFIG=>|[PARAMS SENT TO| 	           |
+    |(set locally)   | DSP LATER IN  | 	           |
+    |<--success(0)---| AUDIO_START]  |             |
+    |		     |               |             |
+    |GET_PCM_CONFIG=>|               | 	           |
+    |(default values)|               |             |
+    |<--pcm buffer---|               |             |
+    |	size & count |               |             |
+    |		     |               |             |
+    |SET_PCM_CONFIG=>|[T/NT PARAM    | 	           |
+    |(set locally)   | SENT LATER IN | 	           |
+    |<--success(0)---| AUDIO_START]  |             |
+    |		     |               |             |
+
+The actual configuration of the audio system is done by AUDIO_START ioctl
+command from userspace. This ioctl command results in a sequence of calls into
+ADSP and AUDMGR drivers. The function "audmgr_enable" moves the audmgr to
+enabled state and "msm_adsp_enable" function is responsible for moving the
+initialized AUDPLAYTASK module to ENABLED state.
+
+On successful return of above functions, "audpp_enable" function is called for
+initializing the AUDPPTASK by passing the AUDPLAYTASK id and the address of the
+function to be registered as callback function to process AUDPP events. Once
+AUDPP is enabled, a config message "AUDPP_MSG_ENA_ENA" is received by AUDPP
+event callback function. In response to this message the WMAPRO10 decoder is
+enabled by sending the command "AUDPP_CMD_CFG_DEC_TYPE" by passing the WMAPRO10
+decoder id to DSP. On sucess this function results in "AUDPP_DEC_STATUS_INIT"
+status message to AUDPP callback function.
+
+After receiving the STATUS_INIT message the driver sets the routing mode i.e.
+tunneled or non-tunneled mode using "AUDPP_CMD_ROUTING_MODE" command. By
+default, routing mode is set to tunneled mode and hence this step can be skipped
+if driver is configured in tunneled mode. ROUTING_ACK is received by the
+callback function in response to this command. After this
+"AUDPP_CMD_CFG_ADEC_PARAMS" command is sent with all the WMAPRO10 configuration
+parameters set by the userspace using SET_CONFIG and SET_WMA_CONFIG ioctl
+commands (eg: sampling rate, channel mode, bitspersecond etc).
+
+This command results in a status message "AUDPP_DEC_STATUS_PLAY" to the event
+callback function registered previously. On receiving this message AUDIO_START
+ioctl command returns success to userspace in tunneled mode, whereas in
+non-tunneled mode "AUDPLAY_CMD_HPCM_BUF_CFG" and "AUDPLAY_CMD_BUFFER_REFRESH"
+commands are sent to DSP before returning success. The above two commands
+register the number and the addresses of pre-allocated kernel buffers with the
+DSP for receiving the decoded pcm samples in non-tunneled mode.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |		     |               |             |
+    |                | audmgr_enable |             |
+    |==AUDIO_START==>|-------------->| 	           |
+    |	             |<--ENABLED(0)--|             |
+    |		     |               |             |
+    |                |------ msm_adsp_enable-----> |
+    |	             |       (AUDPLAYTASK)	   |
+    |	             |<-------- ENABLED(0)---------|
+    |		     |               |             |
+    |                |------ audpp_enable -------> |
+    |	             |        (AUDPPTASK)	   |
+    |	             |<---- success(0)/failure ----|
+    |                |               |             |
+    |                | (callback func - config msg)|
+    |	             |<-----AUDPP_MSG_ENA_ENA------|
+    |		     |               |             |
+    | 		     |      (ENABLE DECODER)       |
+    |                |---AUDPP_CMD_CFG_DEC_TYPE--->|
+    |	             |               |             |
+    |                | (callback func - status msg)|
+    |		     |<---AUDPP_DEC_STATUS_INIT----|
+    |                |               |             |
+    |                |       (Non-tunneled)        |[VALID ONLY FOR
+    |                |---AUDPP_CMD_ROUTING_MODE--->| NON-TUNNELED
+    |                |               |             |  MODE]
+    |                | (callback func - status msg)|[VALID ONLY FOR
+    |                |<---AUDPP_MSG_ROUTING_ACK----| NON-TUNNELED
+    |                |               |             | MODE]
+    | 		     |     (Decoder parameters)    |
+    |                |-AUDPP_CMD_CFG_ADEC_PARAMS-->|
+    |                |               |             |
+    |                | (callback func - status msg)|
+    |		     |<---AUDPP_DEC_STATUS_PLAY----|
+    |                |               |             |
+    |                |   (HOSTPCM CONFIGURATION)   |[VALID ONLY FOR
+    |                |--AUDPLAY_CMD_HPCM_BUF_CFG-->| NON-TUNNELED
+    |                |               |             | MODE]
+    |                |               |             |
+    |                |  (BUFFER FOR PCM SAMPLES)   |[VALID ONLY FOR
+    |                |-AUDPLAY_CMD_BUFFER_REFRESH->| NON-TUNNELED
+    |                |               |             | MODE]
+    |                |               |             |
+    |<--success(0)---|		     |             |
+    |   or failure   |               |             |
+
+
+Userspace can write the WMAPRO10 encoded bitstream to the driver using write
+call. The driver first copies the buffers sent by userspace to pre-allocated
+kernel buffer without sending them directly to DSP. The driver maintains two
+pre-allocated buffers for sending the data to DSP. In order to avoid any
+glitches in the playback in the beginning, userspace can write two buffers in
+advance before issuing AUDIO_START. Pre-filling the buffers ensures that there
+is data available for decoder soon after it starts.
+
+When DSP is ready to process data it responds with "AUDPLAY_MSG_DEC_NEEDS_DATA"
+message to the AUDPLAYTASK callback function. When this message is received the
+physical address along with the length of the kernel buffer is sent to DSP along
+with the command "AUDPLAY_CMD_BITSTREAM_DATA_AVAIL_NT2" using ADSP driver.
+
+The WMAPRO10 dsp decoder will access the data from the address specified in the
+above command and decodes the bitstream. The decoded pcm samples are routed to
+the playback device directly by the decoder in tunneled mode.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |                |               |             |
+    |==== write ====>|[WAIT FOR EMPTY BUFFER AND   |
+    |		     | COPY. DRIVER SENDS TO DSP   |
+    |		     | WHEN DSP REQUESTS DATA]     |
+    |                |               |             |
+    |<--success(0)---|		     |             |
+    |   or failure   |               |             |
+    |                | (audplay callback func -msg)|
+    |		     |<-AUDPLAY_MSG_DEC_NEEDS_DATA-|
+    |                |               |             |
+    |              (AUDPLAY_CMD_BITSTREAM_DATA_AVAIL_NT2)
+    |                |--WMAPRO10 BITSTREAM BUFFER->|
+    |       .        |               |             |
+    |       .        |               |             |
+    |       .        |               |             |
+    |                |               |             |
+    |==== write ====>|[WAIT FOR EMPTY BUFFER AND   |
+    |		     | COPY. DRIVER SENDS TO DSP   |
+    |		     | WHEN DSP REQUESTS DATA]     |
+    |                |               |             |
+    |<--success(0)---|		     |             |
+    |   or failure   |               |             |
+    |                |               |             |
+    |                | (audplay callback func -msg)|
+    |		     |<-AUDPLAY_MSG_DEC_NEEDS_DATA-|
+    |                |               |             |
+    |              (AUDPLAY_CMD_BITSTREAM_DATA_AVAIL_NT2)
+    |                |--WMAPRO10 BITSTREAM BUFFER->|
+    |		     |               |             |
+
+In non-tunneled mode the pcm samples are routed back to the driver and driver
+inturn sends them back to the userspace application in read call. In this mode
+DSP responds
+with "AUDPLAY_MSG_BUFFER_UPDATE" message to the callback function. The message
+consists of the physical address and length of the buffer filled with pcm
+samples. These pcm samples are copied back to the userspace buffer in the read
+call. Though in the below call flow diagram it is shown as if the buffer is
+sent to userspace immediately in the read call it may not happen so. The read
+call can block until a buffer is available for reading and driver may do some
+other processing in between like writing more bitstream buffers inbetween.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |                |               |             |
+    |==== write ====>|[WAIT FOR EMPTY BUFFER AND   |
+    |		     | COPY. DRIVER SENDS TO DSP   |
+    |		     | WHEN DSP REQUESTS DATA]     |
+    |                |               |             |
+    |<--success(0)---|		     |             |
+    |   or failure   |               |             |
+    |                |               |             |
+    |                | (audplay callback func -msg)|
+    |		     |<-AUDPLAY_MSG_DEC_NEEDS_DATA-|
+    |                |               |             |
+    |              (AUDPLAY_CMD_BITSTREAM_DATA_AVAIL_NT2)
+    |                |--WMAPRO10 BITSTREAM BUFFER->|
+    |                |               |             |
+    |       .        |               |             |
+    |       .        |               |             |
+    |       .        |               |             |
+    |                | (audplay callback func -msg)|
+    |		     |<-AUDPLAY_MSG_BUFFER_UPDATE--|
+    |                |               |             |
+    |                |  (BUFFER FOR PCM SAMPLES)   |
+    |                |-AUDPLAY_CMD_BUFFER_REFRESH->|
+    |       .        |               |             |
+    |       .        |               |             |
+    |       .        |               |             |
+    |                |               |             |
+    |===== read ====>|[READ RETURNS IF PCM BUFFER  |
+    |		     | ALREADY AVAILABLE OTHERWISE |
+    |		     | WAITS FOR PCM DATA FROM DSP]|
+    |                |               |             |
+    |  (pcm buffer)  |               |             |
+    |<--bytes read---|		     |             |
+    |                |               |             |
+    |       .        |               |             |
+    |       .        |               |             |
+    |       .        |               |             |
+    |                |               |             |
+
+The driver supports FLUSH, PAUSE, VOLUME, EQ and PAN features. The AUDIO_FLUSH
+ioctl command will flush all the input data buffers available with the DSP. This
+function is used by the userspace applications in FF/REW i.e fast forward and
+rewind scenario while seeking to a new location. On successful flush, FLUSH_ACK
+is received by the AUDPP callback function. After receiving this userspace can
+start writing data immediately from the new location re-positioned. If there is
+a delay in writing the new buffer PCMDMAMISSED may occur from DSP to indicate
+that there is a significant delay in getting bitstream buffers from driver.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |                |               |             |
+    |==AUDIO_FLUSH==>|               | 	           |
+    | 		     |       ( CMD_FLUSH_V)        |
+    |                |-----AUDPP_CMD_DEC_CTRL----->|
+    |	             |               |             |
+    |                | (callback func - status msg)|
+    |		     |<----AUDPP_MSG_FLUSH_ACK-----|
+    |                |               |             |
+    |==== write ====>|[WAIT FOR EMPTY BUFFER AND   |
+    |		     | COPY. DRIVER SENDS TO DSP   |
+    |		     | WHEN DSP REQUESTS DATA]     |
+    |                |               |             |
+    |<--success(0)---|		     |             |
+    |   or failure   |               |             |
+    |                |               |             |
+
+The AUDIO_PAUSE command can be used to pause or resume the playback. Playback
+is paused and resumed by sending the control command with "CMD_PAUSE_V" and
+"CMD_RESUME_V" arguments respectively.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |                |               |             |
+    |==AUDIO_PAUSE==>|               | 	           |
+    | 	  arg=1	     |       ( CMD_PAUSE_V)        |
+    |                |-----AUDPP_CMD_DEC_CTRL----->|
+    |	             |               |             |
+    |                |    (Playback is paused)     |
+    |		     |               |             |
+    |<--success(0)---|		     |             |
+    |                |               |             |
+    |==AUDIO_PAUSE==>|               | 	           |
+    | 	  arg=0	     |       ( CMD_RESUME_V)       |
+    |                |-----AUDPP_CMD_DEC_CTRL----->|
+    |	             |               |             |
+    |                |    (Playback is resumed)    |
+    |		     |               |             |
+    |<--success(0)---|		     |             |
+    |                |               |             |
+
+The post processing parameters like VOLUME, EQ and PAN can be set using ioctl
+commands AUDIO_SET_VOLUME/SET_EQ/SET_PAN. These values are also set similarly
+as shown above by using the command "AUDPP_CMD_VOLUME_PAN".
+
+The AUDIO_STOP ioctl will disable the AUDPLAYTASK acquired, AUDMGR session and
+also releases the AUDPPTASK. To restore the playback using same decoder
+userspace can reconfigure the decoder using the AUDIO_START ioctl command.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |		     |               |             |
+    |==AUDIO_STOP===>|      (DISABLE DECODER)      |
+    | 		     |---AUDPP_CMD_CFG_DEC_TYPE--->|
+    |                |               |             |
+    |                |------ msm_adsp_disable----->|
+    |	             |       (AUDPLAYTASK)	   |
+    |	             |<-------- DISABLED(0)--------|
+    |                |               |             |
+    |                |------- audpp_disable ------>|
+    |	             |          (AUDPPTASK)	   |
+    |	             |<-------- DISABLED(0)--------|
+    |                |               |             |
+    |                |audmgr_disable |             |
+    |                |-------------->| 	           |
+    |	             |<--DISABLED(0)-|             |
+    |<--success(0)---|		     |             |
+    |                |               |             |
+
+The fsync call can be used to ensure all the bitstream buffers sent by userspace
+is consumed by the DSP. It first waits for all the driver buffers to become
+empty and later waits untill "PCMDMAMISSED" event is received from DSP which
+indicates DSP has no buffers left to decode.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |		     |               |             |
+    |==== fsync ====>| [WAITS FOR    |             |
+    |		     |  BUFFERS TO   |             |
+    |		     |  BE EMPTIED]  |             |
+    |		     |               |             |
+    |                | [WAITS FOR    |             |
+    |		     |  PCMDMAMISSED |             |
+    |		     |  FROM DSP]    |             |
+    |		     |               |             |
+    |		     |<-------PCMDMAMISSED---------|
+    |<--success(0)---|		     |             |
+    |		     |               |             |
+
+The close call or the release function disables the tasks acquired in case if
+AUDIO_STOP was not called before. In addition AUDPLAYTASK is released.
+
+USERSPACE    WMAPRO10_DRIVER   AUDMGR_DRIVER   ADSP_DRIVER
+    |                |               |             |
+    |==== close ====>|      (DISABLE DECODER)      |
+    | 		     |---AUDPP_CMD_CFG_DEC_TYPE--->|
+    |                |               |             |
+    |                |------ msm_adsp_disable----->|
+    |	             |       (AUDPLAYTASK)	   |
+    |	             |<-------- DISABLED(0)--------|
+    |                |               |             |
+    |                |------- audpp_disable ------>|
+    |	             |          (AUDPPTASK)	   |
+    |	             |<-------- DISABLED(0)--------|
+    |                |               |             |
+    |                |audmgr_disable |             |
+    |                |-------------->| 	           |
+    |	             |<--DISABLED(0)-|             |
+    |                |               |             |
+    |                |-------- msm_adsp_put------->|
+    |	             |        (AUDPLAYTASK)	   |
+    |	             |<--------DISABLED(0)---------|
+    |<--success(0)---|		     |             |
+    |                |               |             |
+
+Power Management
+================
+
+The driver registers for early suspend and resume events. The suspend level
+"EARLY_SUSPEND_LEVEL_DISABLE_FB" is used while registering. Userspace
+applications can get the suspend and resume events captured by the driver
+using the AUDIO_GET_EVENT ioctl command. This ioctl blocks untill an event
+is available. To come out of block, AUDIO_ABORT_GET_EVENT ioctl command can
+be issued.
+
+SMP/multi-core
+==============
+
+Locking, Synchronization:
+-------------------------
+There are two spinlocks used dsp_lock and event_queue_lock. The "dsp_lock" is
+used while writing data to the dsp, while data is read from dsp and while
+setting the post processing parameters such as volume, pan and eq. This is
+because reading and writing data to DSP can happen in interrupt handler for
+few commands. The "event_queue_lock" is used while adding any new event nodes
+or removing any event nodes to/from event_queue or free_event_queue. Event
+addition can happen from interrupt handler for few events.
+
+There are four mutexes used in the driver "lock", "write_lock", "read_lock" and
+"get_event_lock". The mutex "lock" is a general lock used while configuring the
+hardware and the WMAPRO decoder, while using any critical audio structure
+variables and resources and when releasing the hardware and driver resources.
+The mutex "write_lock" is used for driver write() call and mutex "read_lock" is
+used for driver read() call. These two "read_lock" and "write_lock" mutexes are
+also used in fsync() call to make sure that the lock can be acquired by fsync()
+only after any existing write() calls and read() calls have finished processing.
+The mutex "get_event_lock" is used for locking the AUDIO_GET_EVENT ioctil
+command call from userspace.
+
+Interface
+=========
+
+Userspace APIs:
+---------------
+
+open(): Used to open the driver.
+
+write(): Used for sending the WMAPRO10 bitstream buffers to the driver for
+decoding.
+
+read(): To read the decoded pcm samples from the decoder in non-tunneled mode.
+
+close(): Releases all the resources and closes the driver.
+
+fsync(): Used at the end of playback just before close call to make sure that
+all the data is decoded.
+
+The ioctl call supports AUDIO_START, AUDIO_STOP, AUDIO_PAUSE, AUDIO_FLUSH,
+AUDIO_GET_CONFIG/SET_CONFIG, AUDIO_GET_PCM_CONFIG/SET_PCM_CONFIG,
+AUDIO_GET_EVENT/ABORT_GET_EVENT, AUDIO_SET_VOLUME/SET_EQ/SET_PAN
+commands. These are described below:
+
+Ioctls:
+
+AUDIO_START          	: For enabling the audmgr and WMAPRO10 decoder
+AUDIO_STOP           	: For disabling audmgr and WMAPRO10 decoder
+AUDIO_GET_CONFIG     	: To get the current configuration parameters
+                          These include sampling rate and channel mode
+AUDIO_SET_CONFIG     	: To change the configuration parameters
+AUDIO_GET_WMA_CONFIG  	: To query the WMAPRO10 decoder specific parameters
+AUDIO_SET_WMA_CONFIG  	: To set the WMAPRO10 decoder specific parameters
+AUDIO_GET_EVENT		: To register with driver for getting events like
+                          suspend/resume
+AUDIO_ABORT_EVENT	: To exit from the wait loop of AUDIO_GET_EVENT
+AUDIO_SET_VOLUME	: To set a specific volume value
+AUDIO_SET_EQ		: To set a specific EQ value
+AUDIO_SET_PAN		: To set a specific pan value
+AUDIO_PAUSE		: To pause/resume the playback
+AUDIO_FLUSH		: To flush the input buffers with the DSP
+
+Debugfs:
+--------
+
+The debugfs interface can be used to read the status of the driver at runtime.
+The debugfs creates the file "msm_wmapro_dec_X" under debugfs mount point in
+the open call and closed in release routine. 'X' corresponds to the number of
+the AUDPLAYTASK that is allocated for this session. DSP supports five
+AUDPLAYTASKs 0 - 4 (5th one not used currently i.e. AUDPLAYTASK4).
+
+Config options
+==============
+
+This driver uses MM_ERR, MM_INFO and MM_DBG macros for log messages. These
+macros are defined to standard linux kernel calls such as pr_err, pr_info
+and pr_debug respectively. By default MM_ERR and MM_INFO statements are enabled.
+These are enabled according to the debug level defined in the debug header file
+(debug_audio_mm.h) which is common for all audio decoder drivers. The debug
+level is set to '2' by default. To enable MM_DBG messages which gives more debug
+information, the debug level has to be increased to '3' in debug header file.
+Changing this debug level affects entire audio module i.e. the debug level is
+changed for all the audio drivers.
+
+Dependencies
+============
+
+Driver uses AUDMGR and ADSP drivers.
+
+The driver initializes the A11 AUDMGR (audio manager) which inturn initializes
+the hardware resources. The A11 AUDMGR driver internally communicates with
+audio/device manager layer running on ARM9 (through RPC mechanism) which takes
+care of initializing the audio resources including DSP.
+
+ADSP driver uses RPC mechanism to communicate with the A9 ADSP services for
+loading the required module. The control and data path with DSP decoder happens
+through ADSP driver exported functions which use shared memory.

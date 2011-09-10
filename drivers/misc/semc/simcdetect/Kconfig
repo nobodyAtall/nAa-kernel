@@ -1,0 +1,8 @@
+comment "SIM card detect driver"
+
+config MSM_SIM_CARD_DETECT
+	bool "SIM card detect driver"
+	default n
+	help
+	  This option enables sim card detect driver
+

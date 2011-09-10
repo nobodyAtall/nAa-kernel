@@ -1,0 +1,20 @@
+comment "SEMC Power implementation"
+
+config SEMC_POWER_BOOTLOADER_INITIATES_CHARGING
+	bool "Boot loader is setting up the charger"
+	depends on SEMC_POWER
+	default y
+	help
+	  The bootloader that starts the SW is initiating the charging.
+	  When charging is already active upon probing of this driver
+	  the charger voltage and current is not allowed to be changed until
+	  values are communicated from platform.
+	  This prevents power cut of the platform at low voltage levels.
+
+config SEMC_POWER_BQ24180
+       bool "BQ24180 charger HW"
+       depends on SEMC_POWER && I2C
+       default y
+       help
+         The charging is done by BQ24180
+

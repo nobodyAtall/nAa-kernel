@@ -1,0 +1,95 @@
+Introduction
+============
+
+This kernel driver is for the 720p video core introduced in the
+7x30 SOC.  The 720p video core block is capable of encoding and decoding
+of multiple streams at 30 fps upto 720p resolution image(1280x720).
+
+Hardware description
+====================
+
+720p video core hardware and firmware in 7x30 SOC perform decoding
+& encoding functions for H264,MPEG4,H263 standards.
+720p video core decoder can generate YUV frames in NV12 Linear or
+NV 12 TILE format.
+720p video core encoder supports NV12 Linear format for encoding function.
+
+Software description
+====================
+
+The 720p video driver uses the standard init, open, release, and exit driver
+interfaces for initialization and deinitialization.
+The driver uses the standard ioctl interface for performing encode and
+decode operations.
+
+Design
+======
+
+Requirements:
+The driver supports the codec types defined in msm_vidc_vdec.h and
+msm_vidc_venc.h.  The input and output buffers are allocated in PMEM.
+The driver supports suspend/resume.
+
+Device Node:
+The driver creates device nodes /dev/msm_vidc_vdec for video decoder
+and /dev/msm_vidc_venc for video encoder.
+
+Power Management
+================
+
+720p core clocks are enabled when decoding or encoding is started and
+disabled when decoding or encoding is stopped.
+
+SMP/multi-core
+==============
+
+None.
+
+Security
+========
+
+None.
+
+Performance
+===========
+
+None.
+
+Interface
+=========
+None.
+
+Driver parameters
+=================
+
+None.
+
+Config options
+==============
+
+The driver can be enabled and disabled by the kernel config option MSM_720P_CORE.
+
+Dependencies
+============
+
+The 720p core driver uses the MSM clk driver to enable and disable the clock.
+
+User space utilities
+====================
+
+720p core driver will be used by the openmax video decoder and encoder components.
+
+Other
+=====
+
+None.
+
+Known issues
+============
+
+None.
+
+To do
+=====
+
+None.

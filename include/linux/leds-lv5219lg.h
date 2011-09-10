@@ -1,0 +1,221 @@
+/*
+ * Copyright (C) 2010 Sony Ericsson Mobile Communications.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License, version 2, as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+ */
+
+#ifndef __LEDS_LV5219LG_H__
+#define __LEDS_LV5219LG_H__
+
+#define LV5219LG_LS_DEV_NAME "lightsensor"
+
+#define LIGHTSENSOR_IOC_MAGIC		'Z'
+#define LIGHTSENSOR_SET_ENABLE		_IOW(LIGHTSENSOR_IOC_MAGIC, 1, unsigned char)
+#define LIGHTSENSOR_SET_DISABLE		_IOW(LIGHTSENSOR_IOC_MAGIC, 2, unsigned char)
+#define LIGHTSENSOR_IOC_MAXNR		2
+
+// MLED4~6
+#define LV5219LG_MLED4				0x01
+#define LV5219LG_MLED5				0x02
+#define LV5219LG_MLED6				0x04
+
+// SLED1,2
+#define LV5219LG_SLED1				0x01
+#define LV5219LG_SLED2				0x02
+#define LV5219LG_SLEDALL				0x03
+
+// RGB1
+#define LV5219LG_RLED1				0x01
+#define LV5219LG_GLED1				0x02
+#define LV5219LG_BLED1				0x04
+#define LV5219LG_RGBLED1				0x07
+
+// RGB2
+#define LV5219LG_RLED2				0x01
+#define LV5219LG_GLED2				0x02
+#define LV5219LG_BLED2				0x04
+#define LV5219LG_RGBLED2				0x07
+
+// FLED1,2,3
+#define LV5219LG_FLED1				0x01
+#define LV5219LG_FLED2				0x02
+#define LV5219LG_FLED3				0x04
+#define LV5219LG_FLEDALL				0x07
+
+// interrupt factor ID
+#define LV5219LG_INT_FAC_1				0x00	// 1:KEY-LED brightness detection
+#define LV5219LG_INT_FAC_2				0x01	// 2:MLED or SLED fade in / out finish
+#define LV5219LG_INT_FAC_3				0x02	// 3:RGB1 fade in / out finish
+#define LV5219LG_INT_FAC_4				0x03	// 4:RGB2 fade in / out finish
+#define LV5219LG_INT_FAC_5				0x04	// 5:RGB1 gradation pattern finish
+#define LV5219LG_INT_FAC_6				0x05	// 6:RGB2 gradation pattern finish
+
+#define LV5219LG_INT_FACTOR_KLED_DETECT		0x01
+#define LV5219LG_INT_FACTOR_MLED_FADE_IN_OUT	0x02
+#define LV5219LG_INT_FACTOR_RGB1_FADE_IN_OUT	0x04
+#define LV5219LG_INT_FACTOR_RGB2_FADE_IN_OUT	0x08
+#define LV5219LG_INT_FACTOR_RGB1_GRADATION_FINISH	0x10
+#define LV5219LG_INT_FACTOR_RGB2_GRADATION_FINISH	0x20
+
+// illuminance sensor user id bit assign
+#define LV5219LG_AUTO_INTENSITY_MLED		0x01
+#define LV5219LG_AUTO_INTENSITY_KLED		0x02
+
+// phase of MLED fade out
+#define LV5219LG_MLED_NORMAL_FOUT_CMP 		0
+#define LV5219LG_MLED_FLIGHT_FOUT_CMP 		1
+
+#define LV5219LG_ILLUMINANCE_POL_POS		1
+#define LV5219LG_ILLUMINANCE_POL_NEG		0
+
+#define LV5219LG_CONTROL_ON				1
+#define LV5219LG_CONTROL_OFF			0
+
+#define LV5219LG_CONTROL_TRUE			(!0)
+#define LV5219LG_CONTROL_FALSE			0
+
+#define LV5219LG_SLAVE_ADDR				0x74	/* Slave address of Ledc */
+
+// The maximum number of interrupt factors
+#define LV5219LG_INT_FACTOR_MAX			0x06
+
+#define LV5219LG_MLED_MAX_INTENSITY			0x20
+#define LV5219LG_MLED_MAX_FAINT_INTENSITY		0x07
+
+#define LV5219LG_SLED_MIN_INTENSITY_VALUE			0x07
+#define LV5219LG_FLED_MIN_INTENSITY_VALUE			0x07
+
+#define LV5219LG_SLED_FADE_IN_VALUE			0x00
+#define LV5219LG_SLED_FADE_OUT_VALUE		0x06	// 0.5sec
+
+#define LV5219LG_MLED_FADE_IN_VALUE			0x00
+#define LV5219LG_MLED_FADE_OUT_VALUE		0x06	// 0.5sec
+
+// Maximum Current Limit
+#define LV5219LG_FLED_MAXIMUM_CURRENT_LIMIT		0x00
+#define LV5219LG_RGB1_MAXIMUM_CURRENT_LIMIT		0xE0
+
+// Ledc register address
+#define LV5219LG_REG_LEDCTL1 			0x00
+#define LV5219LG_REG_LEDCTL2 			0x01
+#define LV5219LG_REG_LEDCTL3 			0x02
+#define LV5219LG_REG_LEDCTL4 			0x03
+
+#define LV5219LG_REG_MLEDDACTL			0x04
+
+#define LV5219LG_REG_M4DACTL 			0x05
+#define LV5219LG_REG_M5DACTL 			0x06
+#define LV5219LG_REG_M6_VD_DACTL 		0x07
+
+#define LV5219LG_REG_S1DACTL 			0x08
+#define LV5219LG_REG_S2DACTL 			0x09
+
+#define LV5219LG_REG_R1DACTL 			0x0A
+#define LV5219LG_REG_G1DACTL 			0x0B
+#define LV5219LG_REG_B1DACTL 			0x0C
+
+#define LV5219LG_REG_R2DACTL 			0x0D
+#define LV5219LG_REG_G2DACTL 			0x0E
+#define LV5219LG_REG_B2DACTL 			0x0F
+
+#define LV5219LG_REG_F1DACTL 			0x10
+#define LV5219LG_REG_F2DACTL 			0x11
+#define LV5219LG_REG_F3DACTL 			0x12
+
+#define LV5219LG_REG_MFCTL			0x13
+#define LV5219LG_REG_SFCTL			0x14
+
+#define LV5219LG_REG_R1FCTL			0x15
+#define LV5219LG_REG_G1FCTL			0x16
+#define LV5219LG_REG_B1FCTL			0x17
+
+#define LV5219LG_REG_RGB1GRCTL			0x18
+
+#define LV5219LG_REG_RGB1PUCTL			0x19
+
+#define LV5219LG_REG_R1AOFFCTL			0x1A
+#define LV5219LG_REG_R1AONCTL			0x1B
+#define LV5219LG_REG_G1AOFFCTL			0x1C
+#define LV5219LG_REG_G1AONCTL			0x1D
+#define LV5219LG_REG_B1AOFFCTL			0x1E
+#define LV5219LG_REG_B1AONCTL			0x1F
+
+#define LV5219LG_REG_R2FCTL			0x20
+#define LV5219LG_REG_G2FCTL			0x21
+#define LV5219LG_REG_B2FCTL			0x22
+
+#define LV5219LG_REG_RGB2GRCTL			0x23
+#define LV5219LG_REG_RGB2PUCTL			0x24
+
+#define LV5219LG_REG_R2AOFFCTL			0x25
+#define LV5219LG_REG_R2AONCTL			0x26
+#define LV5219LG_REG_G2AOFFCTL			0x27
+#define LV5219LG_REG_G2AONCTL			0x28
+#define LV5219LG_REG_B2AOFFCTL			0x29
+#define LV5219LG_REG_B2AONCTL			0x2A
+
+#define LV5219LG_REG_KEYCTL			0x2B
+
+#define LV5219LG_REG_PTCTL1			0x2C
+
+#define LV5219LG_REG_INTMASK 			0x2D
+#define LV5219LG_REG_INTDET			0x2E
+
+#define LV5219LG_REG_STATUS			0x2F
+
+#define LV5219LG_REG_PTMDACTL0			0x30
+#define LV5219LG_REG_PTMDACTL1			0x31
+#define LV5219LG_REG_PTMDACTL2			0x32
+#define LV5219LG_REG_PTMDACTL3			0x33
+#define LV5219LG_REG_PTMDACTL4			0x34
+#define LV5219LG_REG_PTMDACTL5			0x35
+#define LV5219LG_REG_PTMDACTL6			0x36
+#define LV5219LG_REG_PTMDACTL7			0x37
+#define LV5219LG_REG_PTMDACTL8			0x38
+#define LV5219LG_REG_PTMDACTL9			0x39
+#define LV5219LG_REG_PTMDACTLA			0x3A
+#define LV5219LG_REG_PTMDACTLB			0x3B
+#define LV5219LG_REG_PTMDACTLC			0x3C
+#define LV5219LG_REG_PTMDACTLD			0x3D
+#define LV5219LG_REG_PTMDACTLE			0x3E
+#define LV5219LG_REG_PTMDACTLF			0x3F
+
+#define LV5219LG_REG_PTCTL2			0x40
+#define LV5219LG_REG_PTCTL3			0x41
+
+#define LV5219LG_REG_GPOCTL			0x42
+
+// each LED CHANNELs bit assign
+#define LV5219LG_CHANNEL_MLED			0x00000001
+#define LV5219LG_CHANNEL_MLED4 			0x00000002
+#define LV5219LG_CHANNEL_MLED5 			0x00000004
+#define LV5219LG_CHANNEL_MLED6 			0x00000008
+#define LV5219LG_CHANNEL_SLED1 			0x00000010
+#define LV5219LG_CHANNEL_SLED2 			0x00000020
+#define LV5219LG_CHANNEL_R1LED 			0x00000040
+#define LV5219LG_CHANNEL_G1LED 			0x00000080
+#define LV5219LG_CHANNEL_B1LED 			0x00000100
+#define LV5219LG_CHANNEL_R2LED 			0x00000200
+#define LV5219LG_CHANNEL_G2LED 			0x00000400
+#define LV5219LG_CHANNEL_B2LED 			0x00000800
+#define LV5219LG_CHANNEL_FLED1 			0x00001000
+#define LV5219LG_CHANNEL_FLED2 			0x00002000
+#define LV5219LG_CHANNEL_FLED3 			0x00004000
+#define LV5219LG_CHANNEL_ILLUMI			0x00008000
+#define LV5219LG_CHANNEL_KLED1 			0x00010000
+#define LV5219LG_CHANNEL_KLED2			0x00020000
+#define LV5219LG_CHANNEL_MLED_FAINT			0x00040000
+#define LV5219LG_CHANNEL_NONE			0x00000000
+
+#endif // _LEDS_LV5219LG_H__

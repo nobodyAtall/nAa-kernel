@@ -1,0 +1,117 @@
+Introduction
+============
+
+This is a standard serial driver for Qualcomm 7k and 8k processors
+with high-speed UART cores with DMA capability.  It can provide
+partial console services, but the non-DMA UART cores can be
+configured for full console service.  The high-speed core is
+primarily for hardwired external controllers such as Bluetooth.
+
+This driver has existed without published detail documentation;
+we are adding partial documentation now just to cover exposing power
+management interfaces for some Bluetooth implementations.
+
+Hardware description
+====================
+
+Software description
+====================
+
+Design
+======
+
+A goal of this design is to support high-speed attachment
+of Bluetooth controllers which require reliable 4-wire
+connections at up to 4 Mbps, while providing for low power
+operation when port is held open but is idle.
+
+External clock controls could be implemented by an ioctl function or
+by a direct call API or by other tricks such as setting zero baud.
+This has been discussed externally:
+
+<http://lkml.indiana.edu/hypermail/linux/kernel/0812.2/01734.html>
+
+The implementation at the time of this writing remains direct API.
+
+Power Management
+================
+
+External modules, either in the kernel or in user space, can detect
+or negotiate periods of no I/O with the attached external device
+even though the UART device node is held open.
+
+Applications that require the UART receiver to always be listening
+can decrease power consumption by using an API to indicate that it is safe
+to clock off the UART.  This API is simply a toggle that means that no I/O
+is expected in either direction until either the API is toggled again,
+or until an external wakeup event occurs.
+
+SMP/multi-core
+==============
+
+Any low-power enhancements must be multiprocessor-safe.  The existing
+functions to control the clock already provide the necessary locking.
+
+Security
+========
+
+Performance
+===========
+
+There are some Bluetooth use cases that stream data at high speed,
+for example file transfers and stereo headset audio.  Full power
+collapse can introduce unacceptable latency and poor throughput
+if allowed to happen frequently.  Too frequent power collapse can
+be avoided by delaying releasing the UART receiver wake_lock for
+a time on the order of the time needed to recover from power collapse.
+Any delay before power collapse should be tunable to adapt to
+differences among platforms.
+
+Interface
+=========
+
+The (existing Qualcomm and Google) design to support the external power control is:
+
+EXPORT_SYMBOL(msm_hs_tx_empty);  /* TIOCSER_TEMT if transmitter physically empty */
+EXPORT_SYMBOL(msm_hs_set_mctrl_locked);  /* set/clear modem contol lines */
+EXPORT_SYMBOL(msm_hs_request_clock_off);  /* OK to clock off when idle */
+EXPORT_SYMBOL(msm_hs_request_clock_on);  /* must not clock off */
+
+These are available to other kernel modules, for example a tty line discipline
+module that might implement in-band negotiation of I/O activity.
+Alternatively an out-of-band "wakeup" indication can be implented in a module
+that monitors GPIO lines.
+
+If the external power negotiation is in user-space, then the clock on/off
+functions are exposed by a sysfs entry
+
+    /sys/devices/platform/msm_serial_hs.<N>/clock
+
+reading this file returns '0' or '1' for the clock state, and writing a '0' or '1'
+is always successful even if it does not change the clock state.  The driver
+will defer a clock off request until any in-progress transmit completes.
+
+The msm_hs_tx_empty and msm_hs_set_mctrl_locked functions need not be exposed
+to user space since they are already available via termios functions.
+
+Driver parameters
+=================
+
+Config options
+==============
+
+Dependencies
+============
+
+User space utilities
+====================
+
+Other
+=====
+
+Known issues
+============
+
+To do
+=====
+

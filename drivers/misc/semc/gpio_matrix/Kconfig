@@ -1,0 +1,20 @@
+comment "SEMC GPIO DRIVERS"
+
+config SEMC_GPIO_MATRIX_DRIVER
+        bool "Semc gpio matrix"
+        default n
+        help
+          Modified gpio matrix driver that supports additional filtering
+
+config SEMC_GPIO_INPUT_DRIVER
+        bool "Semc gpio input"
+        default n
+        help
+          Modified gpio input driver that supports additional processing
+
+config SEMC_GPIO_EXTR
+        bool "SEMC GPIO Extractor"
+        default n
+        help
+          Platform/Product specific SEMC GPIO extractor (get/set interface)
+

@@ -1,0 +1,20 @@
+comment "SEMC Systemconnector implementation"
+
+config SEMC_SEPORT
+        tristate "Semc systemconnector"
+	select SEMC_SEPORT_PLATFORM
+        default n
+        help
+          Enable semc systemconnector. If built as module, will be called
+          semc_systemconnector.ko. Requires the hardware specific driver
+	  config SEMC_SEPORT_PLATFORM which will automatically be anabled
+	  by this selection.
+
+config SEPORT_VIDEO_OUT
+	bool "Hardware has support for video out"
+	depends on SEMC_SEPORT
+	default n
+	help
+	 This enables Video out support in the systemconnector.
+	 Only enable this if required.
+	 If unsure, say N
