@@ -35,7 +35,7 @@
 #define DBG_STR "MDDI: Toshiba HVGA: "
 
 /* ESD recovery setup */
-#define ESD_RECOVERY_SUPPORT
+//#define ESD_RECOVERY_SUPPORT
 #define ESD_CHECKSUM_VAL 0x01
 #define ESD_POLL_TIME_MS 2000
 #define ESD_FAILURE_CHECK_AGAIN_TIME_MS 100

@@ -1,2 +1,4 @@
+#!/bin/bash
 export ARCH=arm
-export CROSS_COMPILE=/opt/android-ndk-r4b/build/prebuilt/linux-x86/arm-eabi-4.4.0/bin/arm-eabi-
+#export CROSS_COMPILE=/opt/android-ndk-r4b/build/prebuilt/linux-x86/arm-eabi-4.4.0/bin/arm-eabi-
+export CROSS_COMPILE=/home/birbilakos/android-src/cyanogen/gingerbread/prebuilt/linux-x86/toolchain/arm-eabi-4.3.1/bin/arm-eabi-

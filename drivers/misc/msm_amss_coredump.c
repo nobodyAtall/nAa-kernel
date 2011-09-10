@@ -26,7 +26,7 @@
 #include <linux/platform_device.h>
 #include <linux/ioport.h>
 #include <linux/elf.h>
-#include <../../arch/arm/mach-msm/smd_private.h>
+#include "../../arch/arm/mach-msm/smd_private.h"
 #include "../../arch/arm/mach-msm/proc_comm.h"
 #include "../../arch/arm/mach-msm/include/mach/msm_iomap.h"
 #define PCOM_KDUMP_EXTENSION_START 0x20000000
