@@ -9,8 +9,12 @@ obj-$(CONFIG_CPU_FREQ_GOV_POWERSAVE)	+= cpufreq_powersave.o
 obj-$(CONFIG_CPU_FREQ_GOV_USERSPACE)	+= cpufreq_userspace.o
 obj-$(CONFIG_CPU_FREQ_GOV_ONDEMAND)	+= cpufreq_ondemand.o
 obj-$(CONFIG_CPU_FREQ_GOV_CONSERVATIVE)	+= cpufreq_conservative.o
-obj-$(CONFIG_CPU_FREQ_GOV_SCREEN)	+= cpufreq_screen.o
+obj-$(CONFIG_CPU_FREQ_GOV_SCREEN)      += cpufreq_screen.o
+obj-$(CONFIG_CPU_FREQ_GOV_MINMAX)	+= cpufreq_minmax.o
+obj-$(CONFIG_CPU_FREQ_GOV_SMARTASS)	+= cpufreq_smartass.o
+obj-$(CONFIG_CPU_FREQ_GOV_SMARTASS2)	+= cpufreq_smartass2.o
+obj-$(CONFIG_CPU_FREQ_GOV_INTERACTIVE)	+= cpufreq_interactive.o
+obj-$(CONFIG_CPU_FREQ_GOV_INTERACTIVEX)	+= cpufreq_interactivex.o
 
 # CPUfreq cross-arch helpers
 obj-$(CONFIG_CPU_FREQ_TABLE)		+= freq_table.o
-
