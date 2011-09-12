@@ -1,0 +1,14 @@
+#
+# X10MINIOC module configuration
+#
+
+config X10_MINI_OVERCLOCK
+	tristate "X10mini overclock"
+	help
+	  Say Y here if you want to build an overclocking module for X10mini
+
+	  If unsure, say N.
+
+	  To compile this module, choose M here: the
+	  module will be called x10minioc.
+

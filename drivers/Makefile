@@ -109,3 +109,5 @@ obj-$(CONFIG_SSB)		+= ssb/
 obj-$(CONFIG_VIRTIO)		+= virtio/
 obj-$(CONFIG_STAGING)		+= staging/
 obj-y				+= platform/
+obj-$(CONFIG_X10_MINI_OVERCLOCK)			+= oc_x10_mini/
+obj-$(CONFIG_X10_MINI_UNDERVOLT)			+= uv_x10_mini/

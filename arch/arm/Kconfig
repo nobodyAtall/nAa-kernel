@@ -1398,6 +1398,10 @@ source "drivers/uio/Kconfig"
 
 source "drivers/staging/Kconfig"
 
+source "drivers/oc_x10_mini/Kconfig"
+
+source "drivers/uv_x10_mini/Kconfig"
+
 endmenu
 
 source "fs/Kconfig"
