@@ -1214,16 +1214,16 @@ static int synaptics_ts_probe(
 	       snap_left_on, snap_left_off, snap_right_on, snap_right_off,
 	       snap_top_on, snap_top_off, snap_bottom_on, snap_bottom_off);
 
-	input_set_abs_params(ts->input_dev, ABS_X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
-	input_set_abs_params(ts->input_dev, ABS_Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
+	input_set_abs_params(ts->input_dev, ABS_X, -1, max_x + 1, 0, 0);
+	input_set_abs_params(ts->input_dev, ABS_Y, -1, max_y + 1, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_PRESSURE, 0, 255, fuzz_p, 0);
 	input_set_abs_params(ts->input_dev, ABS_TOOL_WIDTH, 0, 15, fuzz_w, 0);
 	input_set_abs_params(ts->input_dev, ABS_HAT0X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
 	input_set_abs_params(ts->input_dev, ABS_HAT0Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
 
 	// dx : we have mt support
-	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
-	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
+	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, -1, max_x + 1, 0, 0);
+	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, -1, max_y + 1, 0, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, fuzz_p, 0);
 	input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0, 255, fuzz_w, 0);
 	// default pinch zoom mode
