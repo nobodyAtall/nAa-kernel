@@ -24,6 +24,24 @@
 
 #include <asm/uaccess.h>
 
+// dx : defines
+#define DX_MODULE_VER			"v006"
+#define DX_MODULE_NAME			"x8gesture"
+#define MODE_PINCH_ZOOM			1
+#define MODE_GAME			2
+#define W_THRESHOLD			150
+#define W_THRESHOLD_ZOOM_IN		350
+#define W_THRESHOLD_LARGE_ZOOM_OUT	150
+#define W_NO_ZOOM			20
+#define D_STABLE_THRESHOLD		80000
+#define D_TWO_FINGER_THRESHOLD		150000
+#define D_THRESHOLD_ZOOM_IN		160*120*4
+#define D_RECOVER_THRESHOLD		40000
+#define NUM_EVENT_STABLE		20
+#define AXIS_THRESHOLD			40
+
+#define SYNA_DBG(x)			
+
 #define synpatics_swap(x, y) do { typeof(x) z = x; x = y; y = z; } while (0)
 
 /* Product firmware specific defines, hence the MACROs and register-load function */
@@ -147,12 +165,29 @@ struct synaptics_ts_data {
 	struct rmi4_2D_packet pkt_2D;
 };
 
+
+struct x8g_data_type {
+	int prev_x;
+	int prev_y;
+	int finger;
+	int center_x;
+	int center_y;
+	int fakex;
+	int fakey;
+	int first_x;
+	int first_y;
+	int send_event;
+	int num_stable_event;
+	int state;
+	int mode;
+};
+
+static struct x8g_data_type x8gdata; 
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void synaptics_ts_early_suspend(struct early_suspend *h);
 static void synaptics_ts_late_resume(struct early_suspend *h);
 #endif
-
-#define SYNA_DBG(x)
 
 static int synaptics_load_rmi4_func_regs
 	(struct i2c_client *client, struct rmi4_func_base_addr *rmi4_func)
@@ -296,6 +331,10 @@ static int synaptics_init_panel(struct synaptics_ts_data *ts)
 		return ret;
 	}
 
+	// report mode : most info
+	ret = i2c_smbus_write_byte_data(ts->client, F11_2D_CTRL00_REPORT_MODE(ts->rmi4_func), 0x00);
+	printk(KERN_ERR ": switched to continuous reporting mode\n");
+
 	return ret;
 }
 
@@ -325,6 +364,11 @@ static void synaptics_2D_data_handler(struct synaptics_ts_data *ts)
 {
 	int ret;
 	int i;
+	int w, wx, wy;
+	int d, dx, dy;
+	int d2, dx2, dy2;
+	int d3, dx3, dy3;
+	
 	uint8_t finger_state;
 	uint8_t finger_state_mask;
 	uint8_t pkt_offset;
@@ -345,62 +389,352 @@ static void synaptics_2D_data_handler(struct synaptics_ts_data *ts)
 
 	finger_state = pkt[0];
 	finger_state_mask = 0x03;
+
 	pkt_offset = 1;
-	i = 0;
-	for (; i < ts->info_2D.nbr_of_fingers; i++)
-	{
-		if ((finger_state & finger_state_mask) > 0x01) {
-			printk(KERN_ERR "%s: Error, bad finger_state:0x%02X",
-				__FUNCTION__, finger_state);
-			return;
-		}
 
-		f_data[i].x = (pkt[pkt_offset + PKT_INDX_2D_YX_POS_3__0]
-			& 0x000F);
-		f_data[i].x |= ((pkt[pkt_offset + PKT_INDX_2D_X_POS_11__4]
-			<< 4) & 0x0FF0);
-		f_data[i].y = ((pkt[pkt_offset + PKT_INDX_2D_YX_POS_3__0]
-			>> 4) & 0x000F);
-		f_data[i].y |= ((pkt[pkt_offset + PKT_INDX_2D_Y_POS_11__4]
-			<< 4) & 0x0FF0);
-		f_data[i].z = pkt[pkt_offset + PKT_INDX_2D_Z];
-		/* Setting width to the highest axis-value */
-		f_data[i].w =
-			((pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0x0F) >=
-			(pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0xF0) >> 4) ?
-			(pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0x0F) :
-			(pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0xF0) >> 4;
-
-		if (ts->flags & SYNAPTICS_FLIP_X)
-			f_data[i].x = (ts->info_2D.max_x - f_data[i].x);
-		if (ts->flags & SYNAPTICS_FLIP_Y)
-			f_data[i].y = (ts->info_2D.max_y - f_data[i].y);
-		if (ts->flags & SYNAPTICS_SNAP_TO_INACTIVE_EDGE) {
-			f_data[i].x =
-				synaptics_snap_to_inactive_edge
-					(ts, f_data[i].x, 0);
-			f_data[i].y =
-				synaptics_snap_to_inactive_edge
-					(ts, f_data[i].y, 1);
-		}
-		if (ts->flags & SYNAPTICS_SWAP_XY)
-			synpatics_swap(f_data[i].x, f_data[i].y);
-
-		finger_state_mask = (finger_state_mask << 2);
-		pkt_offset += NBR_OF_2D_DATA_REGS_PER_FINGER;
+	if ((finger_state & finger_state_mask) > 0x01) {
+		printk(KERN_ERR "%s: Error, bad finger_state:0x%02X", __FUNCTION__, finger_state);
+		return;
 	}
 
-	/* press- or release to be masked out on finger_0. */
-	finger_state_mask = 0x01;
-	if (finger_state & finger_state_mask) {
-		input_report_abs(ts->input_dev, ABS_X, f_data[0].x);
-		input_report_abs(ts->input_dev, ABS_Y, f_data[0].y);
+	f_data[0].x = (pkt[pkt_offset + PKT_INDX_2D_YX_POS_3__0] & 0x000F);
+	f_data[0].x |= ((pkt[pkt_offset + PKT_INDX_2D_X_POS_11__4] << 4) & 0x0FF0);
+	f_data[0].y = ((pkt[pkt_offset + PKT_INDX_2D_YX_POS_3__0] >> 4) & 0x000F);
+	f_data[0].y |= ((pkt[pkt_offset + PKT_INDX_2D_Y_POS_11__4] << 4) & 0x0FF0);
+
+	if (ts->flags & SYNAPTICS_FLIP_X) f_data[0].x = (ts->info_2D.max_x - f_data[0].x);
+	if (ts->flags & SYNAPTICS_FLIP_Y) f_data[0].y = (ts->info_2D.max_y - f_data[0].y);
+	if (ts->flags & SYNAPTICS_SNAP_TO_INACTIVE_EDGE) {
+		f_data[0].x = synaptics_snap_to_inactive_edge(ts, f_data[0].x, 0);
+		f_data[0].y = synaptics_snap_to_inactive_edge(ts, f_data[0].y, 1);
 	}
-	input_report_abs(ts->input_dev, ABS_PRESSURE, f_data[0].z);
-	input_report_abs(ts->input_dev, ABS_TOOL_WIDTH, f_data[0].w);
-	input_report_key(ts->input_dev, BTN_TOUCH,
-		(finger_state & finger_state_mask));
-	input_sync(ts->input_dev);
+	if (ts->flags & SYNAPTICS_SWAP_XY) synpatics_swap(f_data[0].x, f_data[0].y);
+	
+	f_data[0].z = pkt[pkt_offset + PKT_INDX_2D_Z];
+	/* Setting width to the highest axis-value */
+	f_data[0].w =
+		((pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0x0F) >=
+		(pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0xF0) >> 4) ?
+		(pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0x0F) :
+		(pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0xF0) >> 4;
+
+
+
+	if (f_data[0].z == 0 && f_data[0].w == 0) {		// untouched?
+		SYNA_DBG(printk(KERN_INFO "%s: untouched\n", __FUNCTION__);)
+		x8gdata.num_stable_event = 0;
+		x8gdata.send_event = 1;
+		x8gdata.finger = 0;			// we are waiting for first finger
+		x8gdata.state = 0;
+	}
+	else {
+		if (x8gdata.finger == 0) {
+			SYNA_DBG(printk(KERN_INFO "%s: start touching\n", __FUNCTION__);)
+			x8gdata.finger = 1;		// touched, waiting for finger 2
+
+			// save position at first touch
+			x8gdata.prev_x = f_data[0].x;
+			x8gdata.prev_y = f_data[0].y;
+
+			x8gdata.first_x = f_data[0].x;
+			x8gdata.first_y = f_data[0].y;
+		}
+	}
+
+	wx = (pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0x0F);
+	wy = (pkt[pkt_offset + PKT_INDX_2D_WIDTH_XY] & 0xF0) >> 4;
+	dx = f_data[0].x - x8gdata.prev_x;
+	if (dx < 0) dx = -dx;
+	dy = f_data[0].y - x8gdata.prev_y;
+	if (dy < 0) dy = -dy;
+	d = dx*dx + dy*dy;
+	w = wx*wx + wy*wy;
+	d2 = dx2 = dy2 = 0;
+	
+	//SYNA_DBG(printk(KERN_INFO "%s: x=%4d y=%4d w=%3d, wx=%3d, wy=%3d\n", __FUNCTION__, x8gdata.prev_x, x8gdata.prev_y, w, wx, wy);)
+
+	// check mode
+	if (d < D_TWO_FINGER_THRESHOLD) {
+		// first: down left, now: up right -> mode pinch
+		if (x8gdata.first_x <= ts->info_2D.max_x / 8 && 7 * x8gdata.first_y >= ts->info_2D.max_y / 8 &&
+			f_data[0].x >= 7 * ts->info_2D.max_x / 8 && f_data[0].y <= ts->info_2D.max_y / 8) {
+			x8gdata.mode = MODE_PINCH_ZOOM;
+			SYNA_DBG(printk(KERN_INFO "%s: switching to pinch zoom mode\n", __FUNCTION__);)
+		}
+		// first: down right, now: up left -> mode game
+		if (x8gdata.first_x >= 7 * ts->info_2D.max_x / 8 && 7 * x8gdata.first_y >= ts->info_2D.max_y / 8 &&
+			f_data[0].x <= ts->info_2D.max_x / 8 && f_data[0].y <= ts->info_2D.max_y / 8) {
+			x8gdata.mode = MODE_GAME;
+			SYNA_DBG(printk(KERN_INFO "%s: switching to game mode\n", __FUNCTION__);)
+		}
+	}
+	
+		
+	
+	// pinch zoom mode
+	switch (x8gdata.mode) {
+	case MODE_PINCH_ZOOM:
+		if (x8gdata.finger <= 1) {
+			// very very big touch?
+			if (w > W_THRESHOLD_LARGE_ZOOM_OUT && 
+			    (x8gdata.prev_x <= ts->info_2D.max_x / 5 || x8gdata.prev_x >= 4 * ts->info_2D.max_x / 5 ||	// are we around the the borders?
+			     x8gdata.prev_y <= ts->info_2D.max_y / 5 || x8gdata.prev_y >= 4 * ts->info_2D.max_y / 5)) {
+				x8gdata.num_stable_event++;
+				if (x8gdata.num_stable_event >= 5) {
+					// zoom out at the center
+					x8gdata.center_x = ts->info_2D.max_x / 2;
+					x8gdata.center_y = ts->info_2D.max_y / 2;
+					SYNA_DBG(printk(KERN_INFO "%s: BIG zoom out detected w=%d wx=%d wy=%d c(%d:%d)\n", __FUNCTION__, w, wx, wy, x8gdata.center_x, x8gdata.center_y);)
+					x8gdata.finger = 3;	// we have 2 fingers already
+					x8gdata.send_event = 2;
+					x8gdata.state = 3;	// BIG zoom out at the center
+				}
+				else {
+					// disable sending data to wait for stable
+					x8gdata.send_event = 0;
+				}
+			}
+			else 	// no, at the center
+				if (w > W_THRESHOLD) {
+					x8gdata.num_stable_event++;
+					if (x8gdata.num_stable_event > 5) {
+						// big touch?
+						if (w > W_THRESHOLD_ZOOM_IN) {				// too big touch, it's a zoom out!
+							x8gdata.center_x = ts->info_2D.max_x / 2;	// zoom out at the center
+							x8gdata.center_y = ts->info_2D.max_y / 2;
+							SYNA_DBG(printk(KERN_INFO "%s: zoom out detected w=%d wx=%d wy=%d c(%d:%d)\n", __FUNCTION__, w, wx, wy, x8gdata.center_x, x8gdata.center_y);)
+							x8gdata.state = 2;	// zoom out at the center
+							x8gdata.finger = 3;	// we have 2 fingers already
+							x8gdata.send_event = 2;	// allow sending data for 2 fingers
+						}
+						else {
+							dx3 = f_data[0].x - x8gdata.first_x;
+							dy3 = f_data[0].y - x8gdata.first_y;
+							d3 = dx3 * dx3 + dy3 * dy3;
+							if (d3 > D_THRESHOLD_ZOOM_IN) {		// we have enough distance from the first touch?
+								x8gdata.center_x = x8gdata.first_x;
+								x8gdata.center_y = x8gdata.first_y;
+								SYNA_DBG(printk(KERN_INFO "%s: zoom in detected w=%d wx=%d wy=%d c(%d:%d)\n", __FUNCTION__, w, wx, wy, x8gdata.center_x, x8gdata.center_y);)
+								x8gdata.state = 1;	// zoom in
+								x8gdata.finger = 3;	// we have 2 fingers already
+								x8gdata.send_event = 2;	// allow sending data for 2 fingers
+							}
+							else {
+								// continue to wait
+								x8gdata.send_event = 0;
+							}
+						}
+					}
+					else {
+						// skip sending data to wait for stable
+						x8gdata.send_event = 0;
+					}
+				}
+		}
+
+		if (x8gdata.finger >= 3) {
+			// check for no more zoom
+			if (w < W_NO_ZOOM) {
+				// we have one finger only
+				x8gdata.finger = 1;
+				x8gdata.send_event = 1;
+				x8gdata.state = 0;
+			}
+			else {
+				dx2 = f_data[0].x - x8gdata.fakex;
+				dy2 = f_data[0].y - x8gdata.fakey;
+				d2 = dx2*dx2 + dy2*dy2;
+			}
+		}
+	
+		//SYNA_DBG(printk(KERN_INFO "%s: w=%3d, d=%8d, d2=%d, dx2=f=%d\n", __FUNCTION__, w, d, d2, x8gdata.finger);)
+
+
+		// we are not expecting LARGE distances during zooming
+		if (x8gdata.finger == 3 && d > D_STABLE_THRESHOLD && d2 > D_STABLE_THRESHOLD) {
+			// try to recover from this...
+			// look for what corner we WERE in
+		
+			if (x8gdata.prev_x <= x8gdata.center_x && x8gdata.prev_y <= x8gdata.center_y) i = 0;	// up left
+			if (x8gdata.prev_x >= x8gdata.center_x && x8gdata.prev_y <= x8gdata.center_y) i = 1;	// up right
+			if (x8gdata.prev_x >= x8gdata.center_x && x8gdata.prev_y >= x8gdata.center_y) i = 2;	// down right
+			if (x8gdata.prev_x <= x8gdata.center_x && x8gdata.prev_y >= x8gdata.center_y) i = 3;	// down left
+		
+			// get current distance to the center
+			dx = f_data[0].x - x8gdata.center_x;
+			if (dx < 0) dx = -dx;
+			dy = f_data[0].y - x8gdata.center_y;
+			if (dy < 0) dy = -dy;
+
+			switch (i) {
+				case 0 :		// up left
+					dx2 = x8gdata.center_x - dx;
+					dy2 = x8gdata.center_y - dy;
+					break;
+				case 1 :		// up right
+					dx2 = x8gdata.center_x + dx;
+					dy2 = x8gdata.center_y - dy;
+					break;
+				case 2 :		// down right
+					dx2 = x8gdata.center_x + dx;
+					dy2 = x8gdata.center_y + dy;
+					break;
+				case 3 :		// down left
+					dx2 = x8gdata.center_x - dx;
+					dy2 = x8gdata.center_y + dy;
+					break;
+			}
+		
+			SYNA_DBG(printk(KERN_INFO "%s: recovering i=%d dx=%d dy=%d, new(%d:%d) old(%d:%d)\n", __FUNCTION__, i, dx, dy, dx2, dy2, x8gdata.prev_x, x8gdata.prev_y);)
+
+
+			// recheck for this position (dx2:dy2)
+			dx = dx2 - x8gdata.prev_x;
+			dy = dy2 - x8gdata.prev_y;
+			d = dx*dx + dy*dy;
+			// and the fake position
+			dx3 = dx2 - x8gdata.fakex;
+			dy3 = dy2 - x8gdata.fakey;
+			d3 = dx3*dx3 + dy3*dy3;
+			SYNA_DBG(printk(KERN_INFO "%s: recovering d'=%d d2'=%d, thres=%d\n", __FUNCTION__, d, d3, D_RECOVER_THRESHOLD);)
+		
+			// acceptable?
+			if (d < D_RECOVER_THRESHOLD || d2 < D_RECOVER_THRESHOLD) {
+				// ok, consider this one
+				f_data[0].x = dx2;
+				f_data[0].y = dy2;
+				SYNA_DBG(printk(KERN_INFO "%s: recovering accepted\n", __FUNCTION__);)
+			}
+			else {	// rejects
+				SYNA_DBG(printk(KERN_INFO "%s: recovering rejected\n", __FUNCTION__);)
+				x8gdata.send_event = 0;
+			}
+		}
+		if (x8gdata.send_event != 0 || x8gdata.finger==1) {	// we are allowed to send events, save this place
+			x8gdata.prev_x = f_data[0].x;
+			x8gdata.prev_y = f_data[0].y;
+		}
+	
+	
+		if (x8gdata.state == 1) {
+			// are we zooming in? decrease speed a little bit
+			f_data[0].x = x8gdata.center_x - 3*(f_data[0].x-x8gdata.center_x)/4;
+			f_data[0].y = x8gdata.center_y - 3*(f_data[0].y-x8gdata.center_y)/4;
+		}
+		
+		if (x8gdata.send_event >= 2) {		// are we allowed to send some events for second finger?
+			// calculate position for first saved finger
+			x8gdata.fakex = x8gdata.center_x * 2 - f_data[0].x;
+			x8gdata.fakey = x8gdata.center_y * 2 - f_data[0].y;
+		
+			// recheck fakex and fakey values
+			if (x8gdata.fakex < 0) x8gdata.fakex = 0;
+			if (x8gdata.fakey < 0) x8gdata.fakey = 0;
+			if (x8gdata.fakex > ts->info_2D.max_x) x8gdata.fakex = ts->info_2D.max_x;
+			if (x8gdata.fakey > ts->info_2D.max_y) x8gdata.fakey = ts->info_2D.max_y;
+		}
+		break;
+	case MODE_GAME:
+		if (x8gdata.finger <= 1) {
+			if (w > W_THRESHOLD) {
+				// big touch, wait for stabilization
+				x8gdata.num_stable_event++;
+				if (x8gdata.num_stable_event > 3) {
+					// generate an event at the old position also
+					x8gdata.fakex = x8gdata.prev_x;
+					x8gdata.fakey = x8gdata.prev_y;
+					x8gdata.finger = 3;	// we have 2 fingers already
+					x8gdata.send_event = 2;
+				}
+				else {
+					// be hold, wait for stablilization
+					x8gdata.send_event = 0;
+				}
+			}
+			else {
+				x8gdata.num_stable_event = 0;
+				if (x8gdata.send_event != 0 || x8gdata.finger==1) {
+					// we are allowed to send events, save this place
+					x8gdata.prev_x = f_data[0].x;
+					x8gdata.prev_y = f_data[0].y;
+				}
+			}
+		}
+		
+		if (x8gdata.finger >= 3) {
+			// check for no more zoom
+			if (w < W_NO_ZOOM) {
+				// we have one finger only
+				x8gdata.finger = 1;
+				x8gdata.send_event = 1;
+				x8gdata.state = 0;
+			}
+			else {
+				dx2 = f_data[0].x - x8gdata.fakex;
+				dy2 = f_data[0].y - x8gdata.fakey;
+				d2 = dx2*dx2 + dy2*dy2;
+				// mistaken (come back to the starting point)?
+				if (d2 < D_STABLE_THRESHOLD) {
+					// dont send these
+					x8gdata.send_event = 0;
+				}
+			}
+		}
+		break;
+	}
+	
+
+	if (x8gdata.send_event >= 1) {		// are we allowed to send some events for first finger?
+		/* press- or release to be masked out on finger_0. */
+		finger_state_mask = 0x01;
+		if (finger_state & finger_state_mask) {
+			input_report_abs(ts->input_dev, ABS_X, f_data[0].x);
+			input_report_abs(ts->input_dev, ABS_Y, f_data[0].y);
+
+			// dx : mt messages also
+			input_report_abs(ts->input_dev, ABS_MT_POSITION_X, f_data[0].x);
+			input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, f_data[0].y);
+		}
+		input_report_abs(ts->input_dev, ABS_PRESSURE, f_data[0].z);
+		input_report_abs(ts->input_dev, ABS_TOOL_WIDTH, f_data[0].w);
+
+		// dx : mt messages also
+		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, f_data[0].z);
+		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, f_data[0].w);
+
+		input_report_key(ts->input_dev, BTN_TOUCH, (finger_state & finger_state_mask));
+		// dx : mt messages also
+		input_mt_sync(ts->input_dev);
+	}
+
+	if (x8gdata.send_event >= 2) {		// are we allowed to send some events for second finger?
+		// generate events for 2nd finger
+		input_report_abs(ts->input_dev, ABS_HAT0X, x8gdata.fakex);
+		input_report_abs(ts->input_dev, ABS_HAT0Y, x8gdata.fakey);
+
+		input_report_abs(ts->input_dev, ABS_MT_POSITION_X, x8gdata.fakex);
+		input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, x8gdata.fakey);
+
+		input_report_abs(ts->input_dev, ABS_PRESSURE, f_data[0].z);
+		input_report_abs(ts->input_dev, ABS_TOOL_WIDTH, f_data[0].w);
+
+		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, f_data[0].z);
+		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, f_data[0].w);
+
+		input_report_key(ts->input_dev, BTN_2, (finger_state & finger_state_mask));
+
+		input_mt_sync(ts->input_dev);
+	}
+
+	if (x8gdata.send_event >= 1) {		// send sync message
+		input_sync(ts->input_dev);
+	}
+	
+	// re-enable send events in case we have just disabled it due to LARGE distances
+	if (x8gdata.send_event == 0 && x8gdata.finger == 3) x8gdata.send_event = 2;
+
+	// re-enable send events in case we have just disabled it due to not LARGE enough distance
+	if (x8gdata.send_event == 0 && x8gdata.finger == 1) x8gdata.send_event = 1;
 }
 
 #ifdef __ETS_SUPPORT__
@@ -840,6 +1174,7 @@ static int synaptics_ts_probe(
 	set_bit(EV_SYN, ts->input_dev->evbit);
 	set_bit(EV_KEY, ts->input_dev->evbit);
 	set_bit(BTN_TOUCH, ts->input_dev->keybit);
+	set_bit(BTN_2, ts->input_dev->keybit);	// dx : we have mt support
 	set_bit(EV_ABS, ts->input_dev->evbit);
 
 	inactive_area_left = inactive_area_left * max_x / 0x10000;
@@ -886,6 +1221,14 @@ static int synaptics_ts_probe(
 	input_set_abs_params(ts->input_dev, ABS_HAT0X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
 	input_set_abs_params(ts->input_dev, ABS_HAT0Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
 
+	// dx : we have mt support
+	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_X, -inactive_area_left, max_x + inactive_area_right, fuzz_x, 0);
+	input_set_abs_params(ts->input_dev, ABS_MT_POSITION_Y, -inactive_area_top, max_y + inactive_area_bottom, fuzz_y, 0);
+	input_set_abs_params(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0, 255, fuzz_p, 0);
+	input_set_abs_params(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0, 255, fuzz_w, 0);
+	// default pinch zoom mode
+	x8gdata.mode = MODE_PINCH_ZOOM;
+	
 	ret = input_register_device(ts->input_dev);
 	if (ret) {
 		printk(KERN_ERR "synaptics_ts_probe: Unable to register %s input device\n", ts->input_dev->name);
