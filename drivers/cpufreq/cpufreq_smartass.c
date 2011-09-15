@@ -95,7 +95,7 @@ static unsigned int up_min_freq;
  * to minimize wakeup issues.
  * Set sleep_max_freq=0 to disable this behavior.
  */
-#define DEFAULT_SLEEP_MAX_FREQ 352000
+#define DEFAULT_SLEEP_MAX_FREQ 122880
 static unsigned int sleep_max_freq;
 
 /*
@@ -110,7 +110,7 @@ static unsigned int sleep_wakeup_freq;
  * go below this frequency.
  * Set awake_min_freq=0 to disable this behavior.
  */
-#define DEFAULT_AWAKE_MIN_FREQ 518400
+#define DEFAULT_AWAKE_MIN_FREQ 0
 static unsigned int awake_min_freq;
 
 /*
@@ -123,20 +123,20 @@ static unsigned int sample_rate_jiffies;
  * Freqeuncy delta when ramping up.
  * zero disables and causes to always jump straight to max frequency.
  */
-#define DEFAULT_RAMP_UP_STEP 256000
+#define DEFAULT_RAMP_UP_STEP 220000
 static unsigned int ramp_up_step;
 
 /*
  * Freqeuncy delta when ramping down.
  * zero disables and will calculate ramp down according to load heuristic.
  */
-#define DEFAULT_RAMP_DOWN_STEP 256000
+#define DEFAULT_RAMP_DOWN_STEP 160000
 static unsigned int ramp_down_step;
 
 /*
  * CPU freq will be increased if measured load > max_cpu_load;
  */
-#define DEFAULT_MAX_CPU_LOAD 50
+#define DEFAULT_MAX_CPU_LOAD 75
 static unsigned long max_cpu_load;
 
 /*
@@ -267,8 +267,14 @@ static void cpufreq_smartass_timer(unsigned long data)
         if (cputime64_sub(update_time, this_smartass->freq_change_time) < down_rate_us)
                 return;
 
-        cpumask_set_cpu(data, &work_cpumask);
-        queue_work(down_wq, &freq_scale_work);
+        /*
+	     * Scale down only when there is something to scale down.
+	    */
+	    if (cpu_load < min_cpu_load)
+	    {
+                cpumask_set_cpu(data, &work_cpumask);
+                queue_work(down_wq, &freq_scale_work);
+		}
 }
 
 static void cpufreq_idle(void)
@@ -756,5 +762,5 @@ static void __exit cpufreq_smartass_exit(void)
 module_exit(cpufreq_smartass_exit);
 
 MODULE_AUTHOR ("Erasmux");
-MODULE_DESCRIPTION ("'cpufreq_minmax' - A smart cpufreq governor optimized for the hero!");
+MODULE_DESCRIPTION ("'cpufreq_smartass' - A smart-ass cpufreq governor optimized for the x10mini!");
 MODULE_LICENSE ("GPL");
