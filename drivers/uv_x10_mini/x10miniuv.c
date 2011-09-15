@@ -21,7 +21,7 @@
 #ifdef X10M
 #define DEVICE_NAME				"X10mini"
 //#define OFS_KALLSYMS_LOOKUP_NAME	0xC00AF6D8			// kallsyms_lookup_name for stock
-#define OFS_KALLSYMS_LOOKUP_NAME	0xC00ACF34			// kallsyms_lookup_name for nAa-r1
+#define OFS_KALLSYMS_LOOKUP_NAME	0xc00acb2c			// kallsyms_lookup_name for nAa-02
 #endif
 
 #ifdef X10MP
