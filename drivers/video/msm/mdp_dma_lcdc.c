@@ -351,7 +351,7 @@ int mdp_lcdc_off(struct platform_device *pdev)
 	ret = panel_next_off(pdev);
 
 	/* delay to make sure the last frame finishes */
-	mdelay(100);
+	mdelay(16);
 
 	return ret;
 }
