@@ -152,22 +152,15 @@ static unsigned int pid_entry_count_dirs(const struct pid_entry *entries,
 	return count;
 }
 
-static int get_fs_path(struct task_struct *task, struct path *path, bool root)
+static struct fs_struct *get_fs_struct(struct task_struct *task)
 {
 	struct fs_struct *fs;
-	int result = -ENOENT;
-
 	task_lock(task);
 	fs = task->fs;
-	if (fs) {
-		read_lock(&fs->lock);
-		*path = root ? fs->root : fs->pwd;
-		path_get(path);
-		read_unlock(&fs->lock);
-		result = 0;
-	}
+	if(fs)
+		atomic_inc(&fs->count);
 	task_unlock(task);
-	return result;
+	return fs;
 }
 
 static int get_nr_threads(struct task_struct *tsk)
@@ -185,11 +178,20 @@ static int get_nr_threads(struct task_struct *tsk)
 static int proc_cwd_link(struct inode *inode, struct path *path)
 {
 	struct task_struct *task = get_proc_task(inode);
+	struct fs_struct *fs = NULL;
 	int result = -ENOENT;
 
 	if (task) {
-		result = get_fs_path(task, path, 0);
+		fs = get_fs_struct(task);
 		put_task_struct(task);
+	}
+	if (fs) {
+		read_lock(&fs->lock);
+		*path = fs->pwd;
+		path_get(&fs->pwd);
+		read_unlock(&fs->lock);
+		result = 0;
+		put_fs_struct(fs);
 	}
 	return result;
 }
@@ -197,11 +199,20 @@ static int proc_cwd_link(struct inode *inode, struct path *path)
 static int proc_root_link(struct inode *inode, struct path *path)
 {
 	struct task_struct *task = get_proc_task(inode);
+	struct fs_struct *fs = NULL;
 	int result = -ENOENT;
 
 	if (task) {
-		result = get_fs_path(task, path, 1);
+		fs = get_fs_struct(task);
 		put_task_struct(task);
+	}
+	if (fs) {
+		read_lock(&fs->lock);
+		*path = fs->root;
+		path_get(&fs->root);
+		read_unlock(&fs->lock);
+		result = 0;
+		put_fs_struct(fs);
 	}
 	return result;
 }
@@ -328,10 +339,7 @@ static int proc_pid_wchan(struct task_struct *task, char *buffer)
 	wchan = get_wchan(task);
 
 	if (lookup_symbol_name(wchan, symname) < 0)
-		if (!ptrace_may_access(task, PTRACE_MODE_READ))
-			return 0;
-		else
-			return sprintf(buffer, "%lu", wchan);
+		return sprintf(buffer, "%lu", wchan);
 	else
 		return sprintf(buffer, "%s", symname);
 }
@@ -595,6 +603,7 @@ static int mounts_open_common(struct inode *inode, struct file *file,
 	struct task_struct *task = get_proc_task(inode);
 	struct nsproxy *nsp;
 	struct mnt_namespace *ns = NULL;
+	struct fs_struct *fs = NULL;
 	struct path root;
 	struct proc_mounts *p;
 	int ret = -EINVAL;
@@ -608,15 +617,21 @@ static int mounts_open_common(struct inode *inode, struct file *file,
 				get_mnt_ns(ns);
 		}
 		rcu_read_unlock();
-		if (ns && get_fs_path(task, &root, 1) == 0)
-			ret = 0;
+		if (ns)
+			fs = get_fs_struct(task);
 		put_task_struct(task);
 	}
 
 	if (!ns)
 		goto err;
-	if (ret)
+	if (!fs)
 		goto err_put_ns;
+
+	read_lock(&fs->lock);
+	root = fs->root;
+	path_get(&root);
+	read_unlock(&fs->lock);
+	put_fs_struct(fs);
 
 	ret = -ENOMEM;
 	p = kmalloc(sizeof(struct proc_mounts), GFP_KERNEL);
@@ -1008,17 +1023,11 @@ static ssize_t oom_adjust_read(struct file *file, char __user *buf,
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
 	char buffer[PROC_NUMBUF];
 	size_t len;
-	int oom_adjust = OOM_DISABLE;
-	unsigned long flags;
+	int oom_adjust;
 
 	if (!task)
 		return -ESRCH;
-
-	if (lock_task_sighand(task, &flags)) {
-		oom_adjust = task->signal->oom_adj;
-		unlock_task_sighand(task, &flags);
-	}
-
+	oom_adjust = task->oomkilladj;
 	put_task_struct(task);
 
 	len = snprintf(buffer, sizeof(buffer), "%i\n", oom_adjust);
@@ -1032,7 +1041,6 @@ static ssize_t oom_adjust_write(struct file *file, const char __user *buf,
 	struct task_struct *task;
 	char buffer[PROC_NUMBUF], *end;
 	int oom_adjust;
-	unsigned long flags;
 
 	memset(buffer, 0, sizeof(buffer));
 	if (count > sizeof(buffer) - 1)
@@ -1048,20 +1056,11 @@ static ssize_t oom_adjust_write(struct file *file, const char __user *buf,
 	task = get_proc_task(file->f_path.dentry->d_inode);
 	if (!task)
 		return -ESRCH;
-	if (!lock_task_sighand(task, &flags)) {
-		put_task_struct(task);
-		return -ESRCH;
-	}
-
-	if (oom_adjust < task->signal->oom_adj && !capable(CAP_SYS_RESOURCE)) {
-		unlock_task_sighand(task, &flags);
+	if (oom_adjust < task->oomkilladj && !capable(CAP_SYS_RESOURCE)) {
 		put_task_struct(task);
 		return -EACCES;
 	}
-
-	task->signal->oom_adj = oom_adjust;
-
-	unlock_task_sighand(task, &flags);
+	task->oomkilladj = oom_adjust;
 	put_task_struct(task);
 	if (end - buffer == 0)
 		return -EIO;
