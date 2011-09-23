@@ -60,7 +60,7 @@ static long __estimate_accuracy(struct timespec *tv)
 	return slack;
 }
 
-long estimate_accuracy(struct timespec *tv)
+static long estimate_accuracy(struct timespec *tv)
 {
 	unsigned long ret;
 	struct timespec now;
