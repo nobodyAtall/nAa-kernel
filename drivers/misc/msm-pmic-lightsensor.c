@@ -93,7 +93,10 @@ static u16 ls_read_adc_value(void)
 	printk(KERN_DEBUG "%s (PM_ADC) %d\n", DEV_NAME, value);
 #endif
 #endif
-	return value;
+	if (value >= 0) {
+		return value;
+	} else
+		return 0;
 }
 
 static u16 ls_get_sensor_value(void)
