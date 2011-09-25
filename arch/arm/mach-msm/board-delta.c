@@ -117,7 +117,7 @@
 #include  <linux/semc/semc_gpio_extr.h>
 #endif
 #define MSM_PMEM_MDP_SIZE	0xC74000
-#define MSM_PMEM_ADSP_SIZE	0x900000
+#define MSM_PMEM_ADSP_SIZE	0x8EC000
 #ifdef CONFIG_CAPTURE_KERNEL
 #include "smd_private.h"
 #endif
@@ -1904,7 +1904,7 @@ static void __init msm_mddi_hitachi_qvga_display_device_init(void)
 
 	panel_data->panel_info.mddi.vdopkt = 0x0023;
 
-	panel_data->panel_info.lcd.vsync_enable = FALSE;
+	panel_data->panel_info.lcd.vsync_enable = TRUE;
 	panel_data->panel_info.lcd.refx100 = 8500;
 	panel_data->panel_info.lcd.v_back_porch = 2;
 	panel_data->panel_info.lcd.v_front_porch = 14;
@@ -1914,7 +1914,8 @@ static void __init msm_mddi_hitachi_qvga_display_device_init(void)
 
 	panel_data->panel_ext = &hitachi_qvga_panel_ext;
 
-	mddi_hitachi_qvga_display_device.dev.platform_data = &hitachi_qvga_panel_data;
+	mddi_hitachi_qvga_display_device.dev.platform_data =
+						&hitachi_qvga_panel_data;
 
 	platform_device_register(&mddi_hitachi_qvga_display_device);
 };
@@ -1977,7 +1978,7 @@ static void __init msm_mddi_samsung_qvga_display_device_init(void)
 
 	panel_data->panel_info.mddi.vdopkt = 0x0023;
 
-	panel_data->panel_info.lcd.vsync_enable = FALSE;
+	panel_data->panel_info.lcd.vsync_enable = TRUE;
 	panel_data->panel_info.lcd.refx100 = 7300;
 	panel_data->panel_info.lcd.v_back_porch = 2;
 	panel_data->panel_info.lcd.v_front_porch = 14;
@@ -2063,7 +2064,7 @@ static void __init msm_mddi_toshiba_hvga_display_device_init(void)
 
 	panel_data->panel_info.mddi.vdopkt = MDDI_DEFAULT_PRIM_PIX_ATTR;
 
-	panel_data->panel_info.lcd.vsync_enable = FALSE;
+	panel_data->panel_info.lcd.vsync_enable = TRUE;
 	panel_data->panel_info.lcd.refx100 = 6600;
 	panel_data->panel_info.lcd.v_back_porch = 1;
 	panel_data->panel_info.lcd.v_front_porch = 2;
@@ -2147,7 +2148,7 @@ static void __init msm_mddi_hitachi_hvga_display_device_init(void)
 
 	panel_data->panel_info.mddi.vdopkt = 0x0023;
 
-	panel_data->panel_info.lcd.vsync_enable = FALSE;
+	panel_data->panel_info.lcd.vsync_enable = TRUE;
 	panel_data->panel_info.lcd.refx100 = 8500;
 	panel_data->panel_info.lcd.v_back_porch = 1;
 	panel_data->panel_info.lcd.v_front_porch = 16;
@@ -2361,8 +2362,7 @@ static struct msm_acpu_clock_platform_data msm7x27_clock_data = {
 	.acpu_switch_time_us = 50,
 	.max_speed_delta_khz = 256000,
 	.vdd_switch_time_us = 62,
-	.max_axi_khz = 160000,
-//	.max_axi_khz = 128000,
+	.max_axi_khz = 128000,
 };
 
 void msm_serial_debug_init(unsigned int base, int irq,
