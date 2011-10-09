@@ -4,8 +4,6 @@
  * Copyright (C) 2008 Google, Inc.
  * Author: Mike Lockwood <lockwood@android.com>
  *
- * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
- *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -28,17 +26,6 @@
 #define ANDROID_CDC_ECM		0x0008
 #define ANDROID_RMNET		0x0009
 #define ANDROID_RNDIS		0x000A
-#define ANDROID_CDROM		0x000B
-#define ANDROID_MSC_CDROM	0x000D
-
-struct usb_mass_storage_lun_config {
-	bool	is_cdrom;
-	int	shift_size;
-	bool	can_stall;
-	char	*vendor;
-	char	*product;
-	int	release;
-};
 
 struct android_usb_platform_data {
 	/* USB device descriptor fields */
@@ -51,14 +38,9 @@ struct android_usb_platform_data {
 
 	char *product_name;
 	char *manufacturer_name;
-	char *serial_number;
 
 	/* number of LUNS for mass storage function */
 	int nluns;
-
-	struct usb_mass_storage_lun_config *cdrom_lun_conf;
-	struct usb_mass_storage_lun_config *msc_lun_conf;
-	struct usb_mass_storage_lun_config *msc_cdrom_lun_conf;
 	int self_powered;
 };
 /* composition support structure */
@@ -67,8 +49,16 @@ struct usb_composition {
 	unsigned long functions;
 	__u16   adb_product_id;
 	unsigned long adb_functions;
-	__u16   eng_product_id;
-	unsigned long eng_functions;
 };
 
+/* Platform data for "usb_mass_storage" driver. */
+struct usb_mass_storage_platform_data {
+	/* Contains values for the SC_INQUIRY SCSI command. */
+	char *vendor;
+	char *product;
+	int release;
+
+	/* number of LUNS */
+	int nluns;
+};
 #endif	/* __LINUX_USB_ANDROID_H */

@@ -2,6 +2,7 @@
  * composite.h -- framework for usb gadgets which are composite devices
  *
  * Copyright (C) 2006-2008 David Brownell
+ * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,8 +37,10 @@
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
-#include "linux/usb/android.h"
+#include <linux/switch.h>
+#include <linux/workqueue.h>
 
+struct usb_composite_dev;
 struct usb_configuration;
 
 /**
@@ -100,6 +103,7 @@ struct usb_function {
 	struct usb_descriptor_header	**hs_descriptors;
 
 	struct usb_configuration	*config;
+	int				disabled;
 
 	/* REVISIT:  bind() functions can be marked __init, which
 	 * makes trouble for section mismatch analysis.  See if
@@ -123,9 +127,13 @@ struct usb_function {
 					const struct usb_ctrlrequest *);
 	void			(*suspend)(struct usb_function *);
 	void			(*resume)(struct usb_function *);
+	void			(*set_func_type)(struct usb_function *, int);
 
+	/* private: */
 	/* internals */
 	struct list_head		list;
+	DECLARE_BITMAP(endpoints, 32);
+	struct device			*dev;
 };
 
 int usb_add_function(struct usb_configuration *, struct usb_function *);
@@ -134,6 +142,9 @@ int usb_function_deactivate(struct usb_function *);
 int usb_function_activate(struct usb_function *);
 
 int usb_interface_id(struct usb_configuration *, struct usb_function *);
+
+void usb_function_set_enabled(struct usb_function *, int);
+void usb_composite_force_reset(struct usb_composite_dev *, int);
 
 /**
  * ep_choose - select descriptor endpoint at current device speed
@@ -219,6 +230,7 @@ struct usb_configuration {
 
 	struct usb_composite_dev	*cdev;
 
+	/* private: */
 	/* internals */
 	struct list_head	list;
 	struct list_head	functions;
@@ -261,6 +273,9 @@ struct usb_composite_driver {
 	const struct usb_device_descriptor	*dev;
 	struct usb_gadget_strings		**strings;
 
+	struct class		*class;
+	atomic_t		function_count;
+
 	/* REVISIT:  bind() functions can be marked __init, which
 	 * makes trouble for section mismatch analysis.  See if
 	 * we can't restructure things to avoid mismatching...
@@ -268,6 +283,7 @@ struct usb_composite_driver {
 
 	int			(*bind)(struct usb_composite_dev *);
 	int			(*unbind)(struct usb_composite_dev *);
+	void			(*enable_function)(struct usb_function *f, int enable);
 };
 
 extern int usb_composite_register(struct usb_composite_driver *);
@@ -327,13 +343,14 @@ struct usb_composite_dev {
 	/* protects at least deactivation count */
 	spinlock_t			lock;
 
-	struct usb_mass_storage_lun_config *cdrom_lun_conf;
-	struct usb_mass_storage_lun_config *msc_lun_conf;
-	struct usb_mass_storage_lun_config *msc_cdrom_lun_conf;
+	struct switch_dev sdev;
+	/* used by usb_composite_force_reset to avoid signalling switch changes */
+	bool				mute_switch;
+	struct work_struct switch_work;
 };
 
 extern int usb_string_id(struct usb_composite_dev *c);
-
+#if 0
 /* messaging utils */
 #define DBG(d, fmt, args...) \
 	dev_dbg(&(d)->gadget->dev , fmt , ## args)
@@ -345,5 +362,5 @@ extern int usb_string_id(struct usb_composite_dev *c);
 	dev_warn(&(d)->gadget->dev , fmt , ## args)
 #define INFO(d, fmt, args...) \
 	dev_info(&(d)->gadget->dev , fmt , ## args)
-
+#endif
 #endif	/* __LINUX_USB_COMPOSITE_H */

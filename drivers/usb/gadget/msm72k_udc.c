@@ -2277,7 +2277,9 @@ static const struct usb_gadget_ops msm72k_ops = {
 	.vbus_session	= msm72k_udc_vbus_session,
 	.vbus_draw	= msm72k_udc_vbus_draw,
 	.pullup		= msm72k_pullup,
+#ifdef CONFIG_USB_GADGET_REMOTE_WAKEUP
 	.wakeup		= msm72k_wakeup,
+#endif
 	.set_selfpowered = msm72k_set_selfpowered,
 };
 

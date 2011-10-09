@@ -69,16 +69,13 @@
 #include <linux/freezer.h>
 #include <linux/utsname.h>
 #include <linux/wakelock.h>
+#include <linux/platform_device.h>
 
 #include <linux/usb_usual.h>
 #include <linux/usb/ch9.h>
-#include <linux/usb/composite.h>
-#include <linux/usb/gadget.h>
+#include <linux/usb/android_composite.h>
 
-#include "f_mass_storage.h"
 #include "gadget_chips.h"
-#include "linux/usb/android.h"
-
 
 #define BULK_BUFFER_SIZE           16384
 
@@ -146,6 +143,11 @@ static const char shortname[] = DRIVER_NAME;
 /* CD_ROM constants */
 #define MAX_2048_SECTORS	256*60*75
 #define MIN_2048_SECTORS	300 /* Smallest track is 300 frames */
+
+/* Function type */
+#define FUNC_TYPE_NONE		0
+#define FUNC_TYPE_MSC		1
+#define FUNC_TYPE_CDROM		2
 
 /* Bulk-only data structures */
 
@@ -326,6 +328,9 @@ struct fsg_dev {
 	struct usb_function function;
 	struct usb_composite_dev *cdev;
 
+	/* optional "usb_mass_storage" platform device */
+	struct platform_device *pdev;
+
 	/* lock protects: state and all the req_busy's */
 	spinlock_t		lock;
 
@@ -377,10 +382,15 @@ struct fsg_dev {
 	struct lun		*luns;
 	struct lun		*curlun;
 
-	u32				buf_size;
-	const char		*vendor;
-	const char		*product;
-	int				release;
+	int			func_type;
+	struct lun		*luns_all;
+	unsigned int		msc_nluns;
+	unsigned int		cdrom_nluns;
+
+	u32			buf_size;
+	char			*vendor;
+	char			*product;
+	int			release;
 
 	struct switch_dev sdev;
 
@@ -2813,12 +2823,12 @@ static void close_backing_file(struct fsg_dev *fsg, struct lun *curlun)
 		 * Also drop caches here just to be extra-safe
 		 */
 		rc = vfs_fsync(curlun->filp, curlun->filp->f_path.dentry, 1);
-		if (rc < 0) {
+		if (rc < 0)
 			printk(KERN_ERR "ums: Error syncing data (%d)\n", rc);
-		} else {
-			last_offset = 0;
-			random_write_count = 0;
-		}
+
+		last_offset = 0;
+		random_write_count = 0;
+
 		/* drop_pagecache and drop_slab are no longer available */
 		/* drop_pagecache(); */
 		/* drop_slab(); */
@@ -2942,7 +2952,7 @@ static void fsg_release(struct kref *ref)
 {
 	struct fsg_dev	*fsg = container_of(ref, struct fsg_dev, ref);
 
-	kfree(fsg->luns);
+	kfree(fsg->luns_all);
 	kfree(fsg);
 }
 
@@ -2956,7 +2966,7 @@ static void lun_release(struct device *dev)
 
 /*-------------------------------------------------------------------------*/
 
-static int fsg_alloc(void)
+static int __init fsg_alloc(void)
 {
 	struct fsg_dev		*fsg;
 
@@ -2994,6 +3004,8 @@ fsg_function_unbind(struct usb_configuration *c, struct usb_function *f)
 	clear_bit(REGISTERED, &fsg->atomic_bitflags);
 
 	/* Unregister the sysfs attribute files and the LUNs */
+	fsg->nluns = fsg->msc_nluns + fsg->cdrom_nluns;
+	fsg->luns = fsg->luns_all;
 	for (i = 0; i < fsg->nluns; ++i) {
 		curlun = &fsg->luns[i];
 		if (curlun->registered) {
@@ -3013,15 +3025,23 @@ fsg_function_unbind(struct usb_configuration *c, struct usb_function *f)
 	}
 
 	/* Free the data buffers */
-	for (i = 0; i < NUM_BUFFERS; ++i) {
+	for (i = 0; i < NUM_BUFFERS; ++i)
 		kfree(fsg->buffhds[i].buf);
-		fsg->buffhds[i].buf = NULL;
+	switch_dev_unregister(&fsg->sdev);
+}
+static void setup_luns(struct fsg_dev *fsg)
+{
+	if (fsg->func_type == FUNC_TYPE_MSC || fsg->cdrom_nluns < 1) {
+		fsg->nluns = fsg->msc_nluns;
+		fsg->luns = fsg->luns_all;
+	} else {
+		fsg->nluns = fsg->cdrom_nluns;
+		fsg->luns = &fsg->luns_all[fsg->msc_nluns];
 	}
-	switch_dev_unregister(&the_fsg->sdev);
 }
 
 static int
-fsg_function_bind(struct usb_configuration *c, struct usb_function *f, int type)
+fsg_function_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct usb_composite_dev *cdev = c->cdev;
 	struct fsg_dev	*fsg = func_to_dev(f);
@@ -3031,17 +3051,19 @@ fsg_function_bind(struct usb_configuration *c, struct usb_function *f, int type)
 	struct lun		*curlun;
 	struct usb_ep		*ep;
 	char			*pathbuf, *p;
-	struct usb_mass_storage_lun_config *lun_conf;
+	struct usb_mass_storage_platform_data *pdata;
 
 	fsg->cdev = cdev;
 	DBG(fsg, "fsg_function_bind\n");
 
-	dev_attr_file.attr.mode = 0644;
-
 	/* Find out how many LUNs there should be */
+	fsg->nluns = fsg->msc_nluns + fsg->cdrom_nluns;
 	i = fsg->nluns;
-	if (i == 0)
+	if (i == 0) {
 		i = 1;
+		fsg->msc_nluns = 1;
+		fsg->func_type = FUNC_TYPE_MSC;
+	}
 	if (i > MAX_LUNS) {
 		ERROR(fsg, "invalid number of LUNs: %d\n", i);
 		rc = -EINVAL;
@@ -3050,39 +3072,66 @@ fsg_function_bind(struct usb_configuration *c, struct usb_function *f, int type)
 
 	/* Create the LUNs, open their backing files, and register the
 	 * LUN devices in sysfs. */
-	fsg->luns = kzalloc(i * sizeof(struct lun), GFP_KERNEL);
-	if (!fsg->luns) {
+	fsg->luns_all = kzalloc(i * sizeof(struct lun), GFP_KERNEL);
+	if (!fsg->luns_all) {
 		rc = -ENOMEM;
 		goto out;
 	}
 	fsg->nluns = i;
+	fsg->luns = fsg->luns_all;
 
 	for (i = 0; i < fsg->nluns; ++i) {
 		curlun = &fsg->luns[i];
-
-		if (type == ANDROID_CDROM) {
-			lun_conf = fsg->cdev->cdrom_lun_conf;
-		} else if (type == ANDROID_MSC_CDROM) {
-			lun_conf = &fsg->cdev->msc_cdrom_lun_conf[i];
+		curlun->ro = 0;
+		if (fsg->pdev && fsg->pdev->dev.platform_data) {
+			pdata = fsg->pdev->dev.platform_data;
+			if (i < pdata->nluns) {
+				/* Mass storage LUN */
+				curlun->is_cdrom = false;
+				curlun->shift_size = 9;
+				curlun->can_stall = true;
+				curlun->vendor = (!pdata->vendor) ?
+					fsg->vendor : pdata->vendor;
+				curlun->product = (!pdata->product) ?
+					fsg->product : pdata->product;
+				curlun->release = (!pdata->release) ?
+					fsg->release : pdata->release;
+			} else {
+				/* CD-ROM LUN */
+				curlun->is_cdrom = true;
+				curlun->shift_size = 11;
+				curlun->can_stall = false;
+				curlun->vendor = (!pdata->cdrom_vendor) ?
+					fsg->vendor : pdata->cdrom_vendor;
+				curlun->product = pdata->cdrom_product;
+				curlun->release = (!pdata->cdrom_release) ?
+					fsg->release : pdata->cdrom_release;
+				curlun->ro = 1;
+			}
 		} else {
-			lun_conf = fsg->cdev->msc_lun_conf;
+			/* Mass storage LUN */
+			curlun->is_cdrom = false;
+			curlun->shift_size = 9;
+			curlun->can_stall = true;
+			curlun->vendor = fsg->vendor;
+			curlun->product = fsg->product;
+			curlun->release = fsg->release;
 		}
-		curlun->is_cdrom = lun_conf->is_cdrom;
-		curlun->ro = curlun->is_cdrom ? 1: 0;
-		curlun->shift_size = lun_conf->shift_size;
-		curlun->can_stall = lun_conf->can_stall;
 		curlun->dev.release = lun_release;
-		curlun->dev.parent = &cdev->gadget->dev;
-		curlun->vendor = lun_conf->vendor;
-		curlun->product = lun_conf->product;
-		curlun->release = lun_conf->release;
+		/* use "usb_mass_storage" platform device as parent if available */
+		if (fsg->pdev)
+			curlun->dev.parent = &fsg->pdev->dev;
+		else
+			curlun->dev.parent = &cdev->gadget->dev;
 		dev_set_drvdata(&curlun->dev, fsg);
-		snprintf(curlun->dev.bus_id, BUS_ID_SIZE,
-				"lun%d", curlun->is_cdrom ? 1 : i);
+		dev_set_name(&curlun->dev,"lun%d", i);
+
+		dev_attr_file.attr.mode = 0644;
 		dev_attr_ro.attr.mode = 0644;
 		dev_attr_file.store = store_file;
-		if(!curlun->is_cdrom)
+		if (!curlun->is_cdrom)
 			dev_attr_ro.store = store_ro;
+
 		rc = device_register(&curlun->dev);
 		if (rc != 0) {
 			INFO(fsg, "failed to register LUN%d: %d\n", i, rc);
@@ -3094,12 +3143,14 @@ fsg_function_bind(struct usb_configuration *c, struct usb_function *f, int type)
 			device_unregister(&curlun->dev);
 			goto out;
 		}
+
 		rc = device_create_file(&curlun->dev, &dev_attr_ro);
 		if (rc != 0) {
 			ERROR(fsg, "device_create_file failed: %d\n", rc);
 			device_unregister(&curlun->dev);
 			goto out;
 		}
+
 		curlun->registered = 1;
 		kref_get(&fsg->ref);
 	}
@@ -3175,6 +3226,8 @@ fsg_function_bind(struct usb_configuration *c, struct usb_function *f, int type)
 	}
 	kfree(pathbuf);
 
+	setup_luns(fsg);
+
 	set_bit(REGISTERED, &fsg->atomic_bitflags);
 
 	/* Tell the thread to start working */
@@ -3193,29 +3246,34 @@ out:
 	return rc;
 }
 
-static int
-msc_function_bind(struct usb_configuration *c, struct usb_function *f)
-{
-	return fsg_function_bind (c,f,ANDROID_MSC);
-}
-
-static int
-cdrom_function_bind(struct usb_configuration *c, struct usb_function *f)
-{
-	return fsg_function_bind (c,f,ANDROID_CDROM);
-}
-
-static int
-msc_cdrom_function_bind(struct usb_configuration *c, struct usb_function *f)
-{
-	return fsg_function_bind(c, f, ANDROID_MSC_CDROM);
-}
-
 static int fsg_function_set_alt(struct usb_function *f,
 		unsigned intf, unsigned alt)
 {
 	struct fsg_dev	*fsg = func_to_dev(f);
+	struct usb_composite_dev *cdev = fsg->cdev;
+	const struct usb_endpoint_descriptor	*d;
+	int rc;
+
 	DBG(fsg, "fsg_function_set_alt intf: %d alt: %d\n", intf, alt);
+
+	setup_luns(fsg);
+
+	/* Enable the endpoints */
+	d = ep_desc(cdev->gadget, &fs_bulk_in_desc, &hs_bulk_in_desc);
+	rc = enable_endpoint(fsg, fsg->bulk_in, d);
+	if (rc)
+		return rc;
+	fsg->bulk_in_enabled = 1;
+
+	d = ep_desc(cdev->gadget, &fs_bulk_out_desc, &hs_bulk_out_desc);
+	rc = enable_endpoint(fsg, fsg->bulk_out, d);
+	if (rc) {
+		usb_ep_disable(fsg->bulk_in);
+		fsg->bulk_in_enabled = 0;
+		return rc;
+	}
+	fsg->bulk_out_enabled = 1;
+	fsg->bulk_out_maxpacket = le16_to_cpu(d->wMaxPacketSize);
 	fsg->new_config = 1;
 	raise_exception(fsg, FSG_STATE_CONFIG_CHANGE);
 	return 0;
@@ -3225,12 +3283,66 @@ static void fsg_function_disable(struct usb_function *f)
 {
 	struct fsg_dev	*fsg = func_to_dev(f);
 	DBG(fsg, "fsg_function_disable\n");
+
+	/* Disable the endpoints */
+	if (fsg->bulk_in_enabled) {
+		DBG(fsg, "usb_ep_disable %s\n", fsg->bulk_in->name);
+		usb_ep_disable(fsg->bulk_in);
+		fsg->bulk_in_enabled = 0;
+	}
+	if (fsg->bulk_out_enabled) {
+		DBG(fsg, "usb_ep_disable %s\n", fsg->bulk_out->name);
+		usb_ep_disable(fsg->bulk_out);
+		fsg->bulk_out_enabled = 0;
+	}
 	fsg->new_config = 0;
 	raise_exception(fsg, FSG_STATE_CONFIG_CHANGE);
 }
 
-int mass_storage_function_add(struct usb_composite_dev *cdev,
-	struct usb_configuration *c, int nluns, int type)
+static void fsg_set_func_type(struct usb_function *f, int type)
+{
+	struct fsg_dev *fsg = func_to_dev(f);
+	DBG(fsg, "fsg_set_func_type\n");
+
+	if (type == FUNC_TYPE_NONE || type == FUNC_TYPE_MSC ||
+		type == FUNC_TYPE_CDROM)
+		fsg->func_type = type;
+	else
+		WARN(fsg, "invalid function type: %d. ignored!\n", type);
+}
+
+static int __init fsg_probe(struct platform_device *pdev)
+{
+	struct usb_mass_storage_platform_data *pdata = pdev->dev.platform_data;
+	struct fsg_dev *fsg = the_fsg;
+
+	fsg->pdev = pdev;
+	printk(KERN_INFO "fsg_probe pdata: %p\n", pdata);
+
+	if (pdata) {
+		if (pdata->vendor)
+			fsg->vendor = pdata->vendor;
+
+		if (pdata->product)
+			fsg->product = pdata->product;
+
+		if (pdata->release)
+			fsg->release = pdata->release;
+
+		fsg->msc_nluns = pdata->nluns;
+		fsg->cdrom_nluns = pdata->cdrom_nluns;
+		fsg->nluns = fsg->msc_nluns + fsg->cdrom_nluns;
+	}
+
+	return 0;
+}
+
+static struct platform_driver fsg_platform_driver = {
+	.driver = { .name = "usb_mass_storage", },
+	.probe = fsg_probe,
+};
+
+int mass_storage_bind_config(struct usb_configuration *c)
 {
 	int		rc;
 	struct fsg_dev	*fsg;
@@ -3240,7 +3352,6 @@ int mass_storage_function_add(struct usb_composite_dev *cdev,
 	if (rc)
 		return rc;
 	fsg = the_fsg;
-	fsg->nluns = nluns;
 
 	spin_lock_init(&fsg->lock);
 	init_rwsem(&fsg->filesem);
@@ -3255,26 +3366,23 @@ int mass_storage_function_add(struct usb_composite_dev *cdev,
 	if (rc < 0)
 		goto err_switch_dev_register;
 
+	rc = platform_driver_register(&fsg_platform_driver);
+	if (rc != 0)
+		goto err_platform_driver_register;
+
 	wake_lock_init(&the_fsg->wake_lock, WAKE_LOCK_SUSPEND,
 		       "usb_mass_storage");
 
-	fsg->cdev = cdev;
+	fsg->cdev = c->cdev;
 	fsg->function.name = shortname;
 	fsg->function.descriptors = fs_function;
-	if (type == ANDROID_MSC) {
-		fsg->function.bind = msc_function_bind;
-	} else if (type == ANDROID_CDROM) {
-		fsg->function.bind = cdrom_function_bind;
-	} else if (type == ANDROID_MSC_CDROM) {
-		fsg->function.bind = msc_cdrom_function_bind;
-	} else {
-		printk ("%s:UNKNOWN TYPE %d\n",__FUNCTION__,type);
-		goto err_usb_add_function;
-	}
+	fsg->function.bind = fsg_function_bind;
 	fsg->function.unbind = fsg_function_unbind;
 	fsg->function.setup = fsg_function_setup;
 	fsg->function.set_alt = fsg_function_set_alt;
 	fsg->function.disable = fsg_function_disable;
+	fsg->function.set_func_type = fsg_set_func_type;
+	fsg->func_type = FUNC_TYPE_MSC;
 
 	rc = usb_add_function(c, &fsg->function);
 	if (rc != 0)
@@ -3283,9 +3391,26 @@ int mass_storage_function_add(struct usb_composite_dev *cdev,
 	return 0;
 
 err_usb_add_function:
+	wake_lock_destroy(&the_fsg->wake_lock);
+	platform_driver_unregister(&fsg_platform_driver);
+err_platform_driver_register:
 	switch_dev_unregister(&the_fsg->sdev);
 err_switch_dev_register:
 	kref_put(&the_fsg->ref, fsg_release);
 
 	return rc;
 }
+
+static struct android_usb_function mass_storage_function = {
+	.name = "usb_mass_storage",
+	.bind_config = mass_storage_bind_config,
+};
+
+static int __init init(void)
+{
+	printk(KERN_INFO "f_mass_storage init\n");
+	android_register_function(&mass_storage_function);
+	return 0;
+}
+module_init(init);
+

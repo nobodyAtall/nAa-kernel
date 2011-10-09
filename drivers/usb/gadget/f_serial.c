@@ -12,9 +12,21 @@
 
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/usb/android_composite.h>
 
 #include "u_serial.h"
 #include "gadget_chips.h"
+
+#define DBG(d, fmt, args...) \
+	dev_dbg(&(d)->gadget->dev , fmt , ## args)
+#define VDBG(d, fmt, args...) \
+	dev_vdbg(&(d)->gadget->dev , fmt , ## args)
+#define ERROR(d, fmt, args...) \
+	dev_err(&(d)->gadget->dev , fmt , ## args)
+#define WARNING(d, fmt, args...) \
+	dev_warn(&(d)->gadget->dev , fmt , ## args)
+#define INFO(d, fmt, args...) \
+	dev_info(&(d)->gadget->dev , fmt , ## args)
 
 
 /*
@@ -268,8 +280,7 @@ gser_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	/* SET_LINE_CODING ... just read and save what the host sends */
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 			| USB_CDC_REQ_SET_LINE_CODING:
-		if (w_length != sizeof(struct usb_cdc_line_coding)
-				|| w_index != gser->data_id)
+		if (w_length != sizeof(struct usb_cdc_line_coding))
 			goto invalid;
 
 		value = w_length;
@@ -280,9 +291,6 @@ gser_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	/* GET_LINE_CODING ... return what host sent, or initial value */
 	case ((USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 			| USB_CDC_REQ_GET_LINE_CODING:
-		if (w_index != gser->data_id)
-			goto invalid;
-
 		value = min_t(unsigned, w_length,
 				sizeof(struct usb_cdc_line_coding));
 		memcpy(req->buf, &gser->port_line_coding, value);
@@ -291,9 +299,6 @@ gser_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	/* SET_CONTROL_LINE_STATE ... save what the host sent */
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8)
 			| USB_CDC_REQ_SET_CONTROL_LINE_STATE:
-		if (w_index != gser->data_id)
-			goto invalid;
-
 		value = 0;
 		gser->port_handshake_bits = w_value;
 		break;
@@ -705,6 +710,10 @@ int gser_bind_config(struct usb_configuration *c, u8 port_num)
 	gser->port.func.set_alt = gser_set_alt;
 	gser->port.func.disable = gser_disable;
 #ifdef CONFIG_MODEM_SUPPORT
+	if (port_num == 0)
+		gser->port.func.name = "modem";
+	else
+		gser->port.func.name = "nmea";
 	gser->port.func.setup = gser_setup;
 	gser->port.connect = gser_connect;
 	gser->port.get_dtr = gser_get_dtr;
@@ -720,3 +729,47 @@ int gser_bind_config(struct usb_configuration *c, u8 port_num)
 		kfree(gser);
 	return status;
 }
+
+#ifdef CONFIG_USB_F_SERIAL
+
+int fserial_nmea_bind_config(struct usb_configuration *c)
+{
+       return gser_bind_config(c, 1);
+}
+
+static struct android_usb_function nmea_function = {
+       .name = "nmea",
+       .bind_config = fserial_nmea_bind_config,
+};
+
+int fserial_modem_bind_config(struct usb_configuration *c)
+{
+       int ret;
+
+       /* See if composite driver can allocate
+        * serial ports. But for now allocate
+        * two ports for modem and nmea.
+        */
+       ret = gserial_setup(c->cdev->gadget, 2);
+       if (ret)
+               return ret;
+       return gser_bind_config(c, 0);
+}
+
+static struct android_usb_function modem_function = {
+       .name = "modem",
+       .bind_config = fserial_modem_bind_config,
+};
+
+static int __init init(void)
+{
+       printk(KERN_INFO "f_serial init\n");
+
+       android_register_function(&modem_function);
+       android_register_function(&nmea_function);
+       return 0;
+}
+module_init(init);
+
+#endif /* CONFIG_USB_F_SERIAL */
+
