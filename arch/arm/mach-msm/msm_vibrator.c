@@ -23,20 +23,16 @@
 #include <mach/msm_rpcrouter.h>
 
 #define PM_LIBPROG      0x30000061
-#if (CONFIG_MSM_AMSS_VERSION == 6220) || (CONFIG_MSM_AMSS_VERSION == 6225)
-#define PM_LIBVERS      0xfb837d0b
-#else
 #define PM_LIBVERS      0x10001
-#endif
 
-#define HTC_PROCEDURE_SET_VIB_ON_OFF	21
-#define PMIC_VIBRATOR_LEVEL	(3000)
+#define HTC_PROCEDURE_SET_VIB_ON_OFF	22
+#define PMIC_VIBRATOR_LEVEL	(2500)
 
-static struct work_struct work_vibrator_on;
-static struct work_struct work_vibrator_off;
+static struct work_struct work_vibrator;
 static struct hrtimer vibe_timer;
+static int vib_enable;
 
-static void set_pmic_vibrator(int on)
+static void set_pmic_vibrator(struct work_struct *work)
 {
 	static struct msm_rpc_endpoint *vib_endpoint;
 	struct set_vib_on_off_req {
@@ -54,7 +50,7 @@ static void set_pmic_vibrator(int on)
 	}
 
 
-	if (on)
+	if (vib_enable)
 		req.data = cpu_to_be32(PMIC_VIBRATOR_LEVEL);
 	else
 		req.data = cpu_to_be32(0);
@@ -63,37 +59,18 @@ static void set_pmic_vibrator(int on)
 		sizeof(req), 5 * HZ);
 }
 
-static void pmic_vibrator_on(struct work_struct *work)
-{
-	set_pmic_vibrator(1);
-}
-
-static void pmic_vibrator_off(struct work_struct *work)
-{
-	set_pmic_vibrator(0);
-}
-
-static void timed_vibrator_on(struct timed_output_dev *sdev)
-{
-	schedule_work(&work_vibrator_on);
-}
-
-static void timed_vibrator_off(struct timed_output_dev *sdev)
-{
-	schedule_work(&work_vibrator_off);
-}
-
 static void vibrator_enable(struct timed_output_dev *dev, int value)
 {
 	hrtimer_cancel(&vibe_timer);
 
-	if (value == 0)
-		timed_vibrator_off(dev);
-	else {
+	if (value == 0) {
+		vib_enable=0;
+		schedule_work(&work_vibrator);
+	} else {
 		value = (value > 15000 ? 15000 : value);
 
-		timed_vibrator_on(dev);
-
+		vib_enable = 1;
+		schedule_work(&work_vibrator);
 		hrtimer_start(&vibe_timer,
 			      ktime_set(value / 1000, (value % 1000) * 1000000),
 			      HRTIMER_MODE_REL);
@@ -111,7 +88,8 @@ static int vibrator_get_time(struct timed_output_dev *dev)
 
 static enum hrtimer_restart vibrator_timer_func(struct hrtimer *timer)
 {
-	timed_vibrator_off(NULL);
+	vib_enable = 0;
+	schedule_work(&work_vibrator);
 	return HRTIMER_NORESTART;
 }
 
@@ -121,16 +99,18 @@ static struct timed_output_dev pmic_vibrator = {
 	.enable = vibrator_enable,
 };
 
-void __init msm_init_pmic_vibrator(void)
+static int __init msm_init_pmic_vibrator(void)
 {
-	INIT_WORK(&work_vibrator_on, pmic_vibrator_on);
-	INIT_WORK(&work_vibrator_off, pmic_vibrator_off);
+	INIT_WORK(&work_vibrator, set_pmic_vibrator);
 
 	hrtimer_init(&vibe_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	vibe_timer.function = vibrator_timer_func;
+	vib_enable = 0;
 
-	timed_output_dev_register(&pmic_vibrator);
+	return timed_output_dev_register(&pmic_vibrator);
 }
+
+arch_initcall(msm_init_pmic_vibrator);
 
 MODULE_DESCRIPTION("timed output pmic vibrator device");
 MODULE_LICENSE("GPL");
