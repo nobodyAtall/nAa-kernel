@@ -177,11 +177,20 @@ static u32 startup_reason;
 #define SEMC_POWER_BQ24180_GPIO_INTERRUPT_PIN 124
 #endif /* CONFIG_SEMC_POWER_BQ24180 */
 
-#ifdef CONFIG_SENSORS_AK8973
-#define AKM8973_GPIO_RESET_PIN	109
-#define AKM8973_GPIO_IRQ_PIN	107
-#endif /* CONFIG_SENSORS_AK8973 */
-
+//#ifdef CONFIG_SENSORS_AK8973
+//#define AKM8973_GPIO_RESET_PIN	109
+//#define AKM8973_GPIO_IRQ_PIN	107
+//#endif /* CONFIG_SENSORS_AK8973 */
+//#define DELTA_REV0_GPIO_COMPASS_INT_N	36
+#define DELTA_GPIO_COMPASS_INT_N	107
+#define DELTA_GPIO_COMPASS_RST_N	109
+#define DELTA_PROJECT_NAME          "delta"
+#define DELTA_LAYOUTS			{ \
+			{ {  0,  1, 0}, {-1,  0, 0}, {0, 0, 1} }, \
+			{ {  0, -1, 0}, {-1,  0, 0}, {0, 0, 1} }, \
+			{ { -1,  0, 0}, { 0, -1, 0}, {0, 0, 1} }, \
+			{ {  1,  0, 0}, { 0,  0, 1}, {0, 1, 0} }  \
+								}
 #ifdef CONFIG_GPIO_ETS
 static struct resource semc_gpios_resources = {
 	.start = 0,
@@ -1308,60 +1317,11 @@ static struct cyttsp_platform_data cypress_i2c_touch_data = {
 #endif /* CONFIG_TOUCHSCREEN_CYTTSP_CORE */
 
 #ifdef CONFIG_SENSORS_AK8973
-static int ak8973_gpio_config(int enable)
-{
-	if (enable) {
-		if (gpio_request(AKM8973_GPIO_RESET_PIN, "akm8973_xres")) {
-			printk(KERN_ERR "%s: gpio_req xres"
-				" - Fail!", __func__);
-			return -EIO;
-		}
-		if (gpio_tlmm_config(GPIO_CFG(AKM8973_GPIO_RESET_PIN, 0,
-			GPIO_OUTPUT, GPIO_NO_PULL, GPIO_2MA),GPIO_ENABLE)) {
-			printk(KERN_ERR "%s: gpio_tlmm_conf xres"
-				" - Fail!", __func__);
-			goto ak8973_gpio_fail_0;
-		}
-		/* Reset is active low, so just a precaution setting. */
-		gpio_set_value(AKM8973_GPIO_RESET_PIN, 1);
-
-		if (gpio_request(AKM8973_GPIO_IRQ_PIN, "akm8973_irq")) {
-			printk(KERN_ERR "%s: gpio_req irq\n"
-				" - Fail!", __func__);
-			goto ak8973_gpio_fail_0;
-		}
-		if (gpio_tlmm_config(GPIO_CFG(AKM8973_GPIO_IRQ_PIN, 0,
-			GPIO_INPUT, GPIO_NO_PULL, GPIO_2MA),GPIO_ENABLE)) {
-			printk(KERN_ERR "%s: gpio_tlmm_conf irq\n"
-				" - Fail!", __func__);
-			goto ak8973_gpio_fail_1;
-		}
-
-	} else {
-		gpio_free(AKM8973_GPIO_RESET_PIN);
-		gpio_free(AKM8973_GPIO_IRQ_PIN);
-	}
-	return 0;
-
-ak8973_gpio_fail_1:
-	gpio_free(AKM8973_GPIO_IRQ_PIN);
-ak8973_gpio_fail_0:
-	gpio_free(AKM8973_GPIO_RESET_PIN);
-	return -EIO;
-}
-
-static int ak8973_xres(void)
-{
-	gpio_set_value(AKM8973_GPIO_RESET_PIN, 0);
-	msleep(10);
-	gpio_set_value(AKM8973_GPIO_RESET_PIN, 1);
-	msleep(20);
-	return 0;
-}
-
-static struct akm8973_i2c_platform_data akm8973_platform_data = {
-	.gpio_config = ak8973_gpio_config,
-	.xres = ak8973_xres
+static struct akm8973_platform_data compass_platform_data = {
+	.layouts = DELTA_LAYOUTS,
+	.project_name = DELTA_PROJECT_NAME,
+	.reset = DELTA_GPIO_COMPASS_RST_N,
+	.intr = DELTA_GPIO_COMPASS_INT_N,
 };
 #endif /* CONFIG_SENSORS_AK8973 */
 
@@ -1440,8 +1400,9 @@ static struct i2c_board_info i2c_devices[] = {
 #endif
 #ifdef CONFIG_SENSORS_AK8973
 	{
-		I2C_BOARD_INFO("akm8973", 0x1C),
-		.platform_data = &akm8973_platform_data,
+		I2C_BOARD_INFO(AKM8973_I2C_NAME, 0x1C),
+		.platform_data = &compass_platform_data,
+		.irq = MSM_GPIO_TO_INT(DELTA_GPIO_COMPASS_INT_N),
 	},
 #endif
 #ifdef CONFIG_SENSORS_AK8975
@@ -2573,7 +2534,14 @@ static void __init msm_device_i2c_init(void)
 		pr_err("failed to request gpio i2c_pri_clk\n");
 	if (gpio_request(61, "i2c_pri_dat"))
 		pr_err("failed to request gpio i2c_pri_dat\n");
-
+	if (gpio_request(DELTA_GPIO_COMPASS_RST_N, "compass_rst"))
+		pr_err("failed to request gpio compass_rst\n");
+	if (gpio_direction_output(DELTA_GPIO_COMPASS_RST_N, 1))
+		pr_err("failed to request gpio direction_output 1\n");
+	if (gpio_request(DELTA_GPIO_COMPASS_INT_N, "compass_int"))
+		pr_err("failed to request gpio compass_int\n");
+	gpio_direction_input(DELTA_GPIO_COMPASS_INT_N);
+		pr_err("failed to request gpio direction_input\n");
 	msm_i2c_pdata.pm_lat =
 		msm7x27_pm_data[MSM_PM_SLEEP_MODE_POWER_COLLAPSE_NO_XO_SHUTDOWN]
 		.latency;
