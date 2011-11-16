@@ -35,8 +35,8 @@
 #ifdef X10M
 #define DEVICE_NAME				"X10 mini"
 //#define OFS_KALLSYMS_LOOKUP_NAME	0xC00AF6D8			// kallsyms_lookup_name for stock
-#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac718			// kallsyms_lookup_name for nAa-06
-
+//#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac718			// kallsyms_lookup_name for nAa-06 x10mini
+#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac7c4			// kallsyms_lookup_name for nAa-06 x8
 #endif
 
 #ifdef X10MP
@@ -792,5 +792,5 @@ static void __exit x10minioc_exit(void)
 module_init(x10minioc_init);
 module_exit(x10minioc_exit);
 
-MODULE_DESCRIPTION("Overclock module for Sony Ericsson X10mini");
+MODULE_DESCRIPTION("Overclock module for Sony Ericsson X10mini / X8");
 MODULE_LICENSE("GPL");
