@@ -1397,9 +1397,13 @@ source "drivers/uio/Kconfig"
 
 source "drivers/staging/Kconfig"
 
-source "drivers/oc_x10_mini/Kconfig"
+source "drivers/oc_robyn/Kconfig"
 
-source "drivers/uv_x10_mini/Kconfig"
+source "drivers/uv_robyn/Kconfig"
+
+source "drivers/oc_shakira/Kconfig"
+
+source "drivers/uv_shakira/Kconfig"
 
 endmenu
 

@@ -29,20 +29,10 @@
 #define MODULE_NAME 			"x10minioc"
 #define PROCFS_NAME 			"x10minioc"
 #define DXDBG(x)					
-#define X10M
-#define X10MPa
 
-#ifdef X10M
-#define DEVICE_NAME				"X10 mini"
+#define DEVICE_NAME				"X10mini"
 //#define OFS_KALLSYMS_LOOKUP_NAME	0xC00AF6D8			// kallsyms_lookup_name for stock
-//#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac718			// kallsyms_lookup_name for nAa-06 x10mini
-#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac7c4			// kallsyms_lookup_name for nAa-06 x8
-#endif
-
-#ifdef X10MP
-#define DEVICE_NAME				"X10 mini pro"
-#define OFS_KALLSYMS_LOOKUP_NAME	0xC00B09F0			// kallsyms_lookup_name
-#endif
+#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac718			// kallsyms_lookup_name for nAa-06 x10mini
 
 // struct definition
 struct clkctl_acpu_speed_dx {

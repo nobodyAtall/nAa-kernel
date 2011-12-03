@@ -2,8 +2,8 @@
 # X10MINIOC module configuration
 #
 
-config X10_MINI_OVERCLOCK
-	tristate "X10mini overclock"
+config ROBYN_OVERCLOCK
+	tristate "Robyn overclock"
 	help
 	  Say Y here if you want to build an overclocking module for X10mini
 

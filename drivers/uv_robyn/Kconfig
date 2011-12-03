@@ -2,8 +2,8 @@
 # X10miniUV module configuration
 #
 
-config X10_MINI_UNDERVOLT
-	tristate "X10mini undervolt"
+config ROBYN_UNDERVOLT
+	tristate "Robyn undervolt"
 	help
 	  Say Y here if you want to build an undervolt module for X10mini
 

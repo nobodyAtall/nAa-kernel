@@ -1,0 +1,14 @@
+#
+# X8OC module configuration
+#
+
+config SHAKIRA_OVERCLOCK
+	tristate "Shakira overclock"
+	help
+	  Say Y here if you want to build an overclocking module for X8
+
+	  If unsure, say N.
+
+	  To compile this module, choose M here: the
+	  module will be called x8oc.
+
