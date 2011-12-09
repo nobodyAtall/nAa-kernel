@@ -11,6 +11,10 @@
  * of the License, or (at your option) any later version.
  */
 
+#ifndef CONFIG_HAS_EARLYSUSPEND
+#define CONFIG_HAS_EARLYSUSPEND
+#endif
+
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -56,10 +60,9 @@ MODULE_LICENSE("GPL");
 #define CY8_BL_MODE_DATA_LENGTH		0x10
 #define CY8_START_CONDITION_HI 		0xa5
 #define CY8_START_CONDITION_LO 		0x5a
-#define CY8_MAX_NBR_WAIT_FULL_PKT	       10
+#define CY8_MAX_NBR_WAIT_FULL_PKT	       20
 #define RPT_TIMEOUT msecs_to_jiffies(100)
-
-#define DBG(x)
+#define DBG(X)
 
 enum cy8_cmd {
 	CMD_CY8_NO_CMD,
@@ -122,6 +125,8 @@ struct cy8_ser {
 	 */
 	unsigned int last_x;
 	unsigned int last_y;
+	unsigned int last_x2;
+	unsigned int last_y2;
 
 	enum cy8_mode		mode;
 	struct cy8_sync_cmd	sync_cmd;
@@ -395,8 +400,8 @@ static irqreturn_t cy8ctma300_ser_interrupt(struct serio *serio,
 	struct input_dev *dev = cy8_ser->dev;
 	struct cy8_sync_cmd *sync = &cy8_ser->sync_cmd;
 	struct cy8_pkt *cy8_pkt = &cy8_ser->rx_pkt;
-
-	DBG(printk(KERN_INFO"%s: enter\n", __func__));
+	//printk(KERN_INFO"%s: enter\n", __func__);
+	//DBG(printk(KERN_INFO"%s: enter\n", __func__));
 
 	if (cy8_pkt->err && (data != CY8_START_CONDITION_HI)) {
 		DBG(printk(KERN_INFO"%s: dropping packet data %x\n",
@@ -434,8 +439,8 @@ static irqreturn_t cy8ctma300_ser_interrupt(struct serio *serio,
 		cy8_pkt->reg = data;
 		goto pkt_ok;
 	default:
-		DBG(printk(KERN_INFO"%s: data[%u] = 0x%x\n",
-			__func__, cy8_pkt->data_idx, data));
+		DBG(printk(KERN_INFO"%s: data[%u] = 0x%x (%c)\n",
+			__func__, cy8_pkt->data_idx, data, data));
 		cy8_pkt->data[cy8_pkt->data_idx++] = data;
 
 	}
@@ -503,51 +508,106 @@ static irqreturn_t cy8ctma300_ser_interrupt(struct serio *serio,
 		case REG_HST_MODE_OP_NORMAL:
 		{
 			int x = (cy8_pkt->data[3] << 8) | cy8_pkt->data[4];
-			int y = (cy8_pkt->data[5] << 8) | cy8_pkt->data[6];
-			int pressure = cy8_pkt->data[7];
-			int finger = cy8_pkt->data[2];
+                        int y = (cy8_pkt->data[5] << 8) | cy8_pkt->data[6];
+                        int pressure = cy8_pkt->data[7];
+                        int finger = cy8_pkt->data[2];
+                       
+                        int x2 = (cy8_pkt->data[9] << 8) | cy8_pkt->data[10];
+                        int y2 = (cy8_pkt->data[11] << 8) | cy8_pkt->data[12];
+                        int pressure2 = cy8_pkt->data[13];
+ 
+                        if (cy8_pkt->data_len != CY8_NORMAL_MODE_DATA_LENGTH) {
+                                DBG(printk(KERN_ERR "%s: err normal len:%d\n",
+                                         __func__, cy8_pkt->data_len));
+                                goto pkt_err;
+                        }
+                        if (sync->cmd == CMD_CY8_SET_NORMAL_MODE ||
+                                        sync->cmd == CMD_CY8_EXIT_BL_MODE) {
+                        /*
+                        * As per definition the fw application always starts
+                        * in Normal Mode, hence exit bl mode sync here
+                        */
+                                DBG(printk(KERN_INFO"%s: SET_NORMAL_MODE\n",
+                                        __func__);)
+                                goto sync_cmplt;
+                        }
+                        /*
+                         * This should be removed as soon as the bug is corrected
+                         * in firmware!
+                         */
+			
+                  
 
-			if (cy8_pkt->data_len != CY8_NORMAL_MODE_DATA_LENGTH) {
-				DBG(printk(KERN_ERR "%s: err normal len:%d\n",
-					 __func__, cy8_pkt->data_len));
-				goto pkt_err;
-			}
-			if (sync->cmd == CMD_CY8_SET_NORMAL_MODE ||
-					sync->cmd == CMD_CY8_EXIT_BL_MODE) {
-			/*
-			* As per definition the fw application always starts
-			* in Normal Mode, hence exit bl mode sync here
-			*/
-				DBG(printk(KERN_INFO"%s: SET_NORMAL_MODE\n",
-					__func__);)
-				goto sync_cmplt;
-			}
-			/*
-			 * This should be removed as soon as the bug is corrected
-			 * in firmware!
-			 */
-			if (finger) {
-				cy8_ser->last_x = x;
-				cy8_ser->last_y = y;
-			} else {
-				x = cy8_ser->last_x;
-				y = cy8_ser->last_y;
-			}
-
-			DBG(printk(KERN_INFO"x = %u [0x%x]\n", x, x));
-			DBG(printk(KERN_INFO"y = %u [0x%x]\n", y, y));
-			DBG(printk(KERN_INFO"pressure = %u\n", pressure));
-			DBG(printk(KERN_INFO"finger = %u\n", finger));
-
-			if (!dev)
-				goto exit;
-			input_report_abs(dev, ABS_X, x);
-			input_report_abs(dev, ABS_Y, y);
-			input_report_abs(dev, ABS_PRESSURE, pressure);
-			input_report_abs(dev, ABS_TOOL_WIDTH, 10);
-			input_report_key(dev, BTN_TOUCH, finger);
-			input_sync(dev);
+                        if (finger) {
+                                cy8_ser->last_x = x;
+                                cy8_ser->last_y = y;
+                        } else {
+				if (finger == 2) {
+				  cy8_ser->last_x2 = x2;
+                                  cy8_ser->last_y2 = y2;
+				} else {	
+					 x2 = cy8_ser->last_x2;
+                               		 y2 = cy8_ser->last_y2;
+				}
+                                x = cy8_ser->last_x;
+                                y = cy8_ser->last_y;
+                        }
+			
+ 
+                        DBG(printk(KERN_INFO"x = %u [0x%x]\n", x, x));
+                        DBG(printk(KERN_INFO"y = %u [0x%x]\n", y, y));
+                        DBG(printk(KERN_INFO"pressure = %u\n", pressure));
+                        DBG(printk(KERN_INFO"finger = %u\n", finger));
+ 
+                        if (!dev)
+                                goto exit;
+                 
+			if (finger > 0) {
+                                input_report_abs(dev, ABS_X, x);
+                                input_report_abs(dev, ABS_Y, y);
+                                // dx : mt messages also
+                                input_report_abs(dev, ABS_MT_POSITION_X, x);
+                                input_report_abs(dev, ABS_MT_POSITION_Y, y);
+                       
+                                input_report_abs(dev, ABS_PRESSURE, pressure);
+                                input_report_abs(dev, ABS_TOOL_WIDTH, 10);
+                                // dx : mt messages also
+                                input_report_abs(dev, ABS_MT_TOUCH_MAJOR, pressure);
+                                input_report_abs(dev, ABS_MT_WIDTH_MAJOR, 10);
+                       
+                                input_report_key(dev, BTN_TOUCH, finger);
+                                // dx : mt messages also
+                                input_mt_sync(dev);
+ 
+                                // dx : for second finger
+                                if (finger >= 2) {
+                                        input_report_abs(dev, ABS_HAT0X, x2);
+                                        input_report_abs(dev, ABS_HAT0Y, y2);
+ 
+                                        input_report_abs(dev, ABS_MT_POSITION_X, x2);
+                                        input_report_abs(dev, ABS_MT_POSITION_Y, y2);
+ 
+                                        input_report_abs(dev, ABS_PRESSURE, pressure2);
+                                        input_report_abs(dev, ABS_TOOL_WIDTH, 10);
+ 
+                                        input_report_abs(dev, ABS_MT_TOUCH_MAJOR, pressure2);
+                                        input_report_abs(dev, ABS_MT_WIDTH_MAJOR, 10);
+ 
+                                        input_report_key(dev, BTN_2, finger);
+ 
+                                        input_mt_sync(dev);
+                                }
+                        }
+                        else {
+                                input_report_key(dev, BTN_TOUCH, 0);
+                                input_mt_sync(dev);
+                                input_report_key(dev, BTN_2, 0);
+                                input_mt_sync(dev);
+                        }
+                        input_sync(dev);
+			
 			goto exit;
+                       
 		}
 		case REG_HST_MODE_OP_BOOTLOADER:
 			goto exit;
@@ -577,6 +637,7 @@ pkt_err:
 	cy8_pkt->pkt_idx = 0;
 	cy8_pkt->data_idx = 0;
 	cy8_pkt->err = 1;
+	goto exit;
 exit:	return IRQ_HANDLED;
 }
 
@@ -602,16 +663,25 @@ static int cy8ctma300_setup_input_device(struct cy8_ser *cy8_ser)
 	set_bit(ABS_Y, input_dev->absbit);
 	set_bit(ABS_PRESSURE, input_dev->absbit);
 	set_bit(BTN_TOUCH, input_dev->keybit);
+	set_bit(BTN_2, input_dev->keybit);	// dx : we have mt support
 	set_bit(EV_KEY, input_dev->evbit);
 	set_bit(EV_ABS, input_dev->evbit);
 
-	input_set_abs_params(input_dev, ABS_X, 0, cy8_ser->sysinfo.max_x - 1,
+	input_set_abs_params(input_dev, ABS_X, 0, cy8_ser->sysinfo.max_x ,
 			     0, 0);
-	input_set_abs_params(input_dev, ABS_Y, 0, cy8_ser->sysinfo.max_y - 1,
+	input_set_abs_params(input_dev, ABS_Y, 0, cy8_ser->sysinfo.max_y ,
 			     0, 0);
-	input_set_abs_params(input_dev, ABS_TOOL_WIDTH, 0, 255, 0, 0);
-	input_set_abs_params(input_dev, ABS_PRESSURE, 0, 255, 0, 0);
-
+	input_set_abs_params(input_dev, ABS_TOOL_WIDTH, 0, 64, 0, 0);
+	input_set_abs_params(input_dev, ABS_PRESSURE, 0, 128, 0, 0);
+	
+	// dx : we have mt support
+	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, cy8_ser->sysinfo.max_x ,
+			     0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, cy8_ser->sysinfo.max_y ,
+			     0, 0);
+	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0, 32, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_WIDTH_MAJOR, 0, 32, 0, 0);
+	
 	err = input_register_device(input_dev);
 	if (err) {
 		dev_err(&cy8_ser->serio->dev, "%s: unable to register input\n",
@@ -832,16 +902,20 @@ bypass:
 	cy8_ser->early_suspend.resume = cy8ctma300_late_resume;
 	register_early_suspend(&cy8_ser->early_suspend);
 #endif
-	err = device_create_file(&serio->dev, &fwloader);
+	
+	err=0;
 	if (err) {
 		printk(KERN_ERR "%s: Error, could not create attribute\n",
 			__func__);
+		err = device_create_file(&serio->dev, &fwloader);
 		goto error_fs_dev;
 	}
-	err = device_create_file(&serio->dev, &cy_dtid);
+	
+	err=0;
 	if (err) {
 		printk(KERN_ERR "%s: Error, could not create attribute\n",
 			__func__);
+		err = device_create_file(&serio->dev, &cy_dtid);
 		goto error_fs_dev_dtid;
 	}
 	return 0;
@@ -909,20 +983,25 @@ static struct platform_driver cy8ctma300_pf_drv = {
 };
 
 static int __init cy8ctma300_ser_init(void)
-{
+{	
 	int rc;
+	
 	DBG(printk(KERN_INFO "%s: enter\n", __func__));
+	
 	rc = platform_driver_register(&cy8ctma300_pf_drv);
 	if (rc) {
 		printk(KERN_ERR "%s: Unsuccessfull pf drv reg\n", __func__);
 		return rc;
 	}
 	rc = serio_register_driver(&cy8ctma300_ser_drv);
-	if (rc)
+	if (rc) 
 		printk(KERN_ERR "%s: Unsuccessfull ser drv reg\n", __func__);
 	return rc;
+	
+
 
 }
+
 
 static void __exit cy8ctma300_ser_exit(void)
 {
