@@ -19,7 +19,7 @@
 #define DEVICE_NAME				"X8"
 //#define OFS_KALLSYMS_LOOKUP_NAME	0xC00AF6D8			// kallsyms_lookup_name for stock
 //#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac718			// kallsyms_lookup_name for nAa-06 x10mini
-#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac7c4			// kallsyms_lookup_name for nAa-06 x8
+#define OFS_KALLSYMS_LOOKUP_NAME	0xc00ac82c	 		// kallsyms_lookup_name for nAa-07 x8
 
 // struct definition
 struct clkctl_acpu_speed_dx {
