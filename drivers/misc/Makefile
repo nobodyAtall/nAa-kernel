@@ -22,6 +22,7 @@ obj-$(CONFIG_SGI_XP)		+= sgi-xp/
 obj-$(CONFIG_SGI_GRU)		+= sgi-gru/
 obj-$(CONFIG_HP_ILO)		+= hpilo.o
 obj-$(CONFIG_UID_STAT)		+= uid_stat.o
+obj-$(CONFIG_IFACE_STAT)	+= iface_stat.o
 obj-$(CONFIG_C2PORT)		+= c2port/
 obj-$(CONFIG_MSM_PMIC_LIGHTSENSOR)	+= msm-pmic-lightsensor.o
 obj-$(CONFIG_SEMCCLASS)		+= semc/

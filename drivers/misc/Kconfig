@@ -315,6 +315,10 @@ config PMIC8058_PWM
 	  purposes including software controlled brightness of backlight,
 	  motor control, and waveform generation.
 
+config IFACE_STAT
+ 	bool "Persistent interface statistics tracking exported to /proc/iface_stat"
+    default n
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/semc/seport/Kconfig"

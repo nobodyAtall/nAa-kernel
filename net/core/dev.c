@@ -126,6 +126,7 @@
 #include <linux/in.h>
 #include <linux/jhash.h>
 #include <linux/random.h>
+#include <linux/iface_stat.h>
 
 #include "net-sysfs.h"
 
@@ -4189,8 +4190,11 @@ static void rollback_registered(struct net_device *dev)
 	unlist_netdevice(dev);
 
 	dev->reg_state = NETREG_UNREGISTERING;
-
+	
+    /* Store stats for this device in persistent iface_stat */
 	synchronize_net();
+	
+	iface_stat_update(dev);
 
 	/* Shutdown queueing discipline. */
 	dev_shutdown(dev);
