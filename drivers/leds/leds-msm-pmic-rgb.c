@@ -409,6 +409,22 @@ static struct device_attribute rgb_attributes[] = {
 	__ATTR(blue:max_brightness,  0200, NULL,  store_max_brightness),
 };
 
+static long msm_pmic_rgb_panic_blink(long time)
+{
+	static bool initialized = false;
+	printk(KERN_INFO "leds: Panicking %ld\n", time);
+	mutex_lock(&rgb_leds_data.update_lock);
+	if (initialized)
+		goto exit;
+	initialized = true;
+	set_led_brightness(led_by_name("red:brightness"), 255 & 0xff);
+	set_led_brightness(led_by_name("green:brightness"), 255 & 0xff);
+	set_led_brightness(led_by_name("blue:brightness"), 255 & 0xff);
+	turn_on_all_leds();
+exit: mutex_unlock(&rgb_leds_data.update_lock);
+	return 0;
+}
+
 static void init_led_data(void)
 {
 	mutex_init(&rgb_leds_data.update_lock);
@@ -461,6 +477,7 @@ static int __init rgb_init(void)
 		printk(KERN_ERR "%s: Failed to register rgb led interface\n", DRV_NAME);
 		goto exit;
 	}
+	panic_blink = msm_pmic_rgb_panic_blink;
 
 	printk(KERN_INFO "%s version %s loaded\n", DRV_NAME, DRIVER_VERSION);
 	return 0;
