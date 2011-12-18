@@ -412,7 +412,6 @@ static struct device_attribute rgb_attributes[] = {
 static long msm_pmic_rgb_panic_blink(long time)
 {
 	static bool initialized = false;
-	printk(KERN_INFO "leds: Panicking %ld\n", time);
 	mutex_lock(&rgb_leds_data.update_lock);
 	if (initialized)
 		goto exit;
