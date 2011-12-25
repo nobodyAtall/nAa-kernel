@@ -1215,7 +1215,7 @@ clean: archclean $(clean-dirs)
 		-o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \
 		-o -name '*.symtypes' -o -name 'modules.order' \
 		-o -name 'Module.markers' -o -name '.tmp_*.o.*' \) \
-		-type f -print | xargs rm -f
+		-type f -print |grep -v kernel_| xargs rm -f
 
 # mrproper - Delete all generated files, including .config
 #
