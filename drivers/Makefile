@@ -113,3 +113,4 @@ obj-$(CONFIG_ROBYN_OVERCLOCK)			+= oc_robyn/
 obj-$(CONFIG_ROBYN_UNDERVOLT)			+= uv_robyn/
 obj-$(CONFIG_SHAKIRA_OVERCLOCK)                        += oc_shakira/
 obj-$(CONFIG_SHAKIRA_UNDERVOLT)                        += uv_shakira/
+obj-$(CONFIG_MIMMI_UNDERVOLT)                   += uv_mimmi/

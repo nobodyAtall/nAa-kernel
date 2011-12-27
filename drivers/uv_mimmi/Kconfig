@@ -1,0 +1,14 @@
+#
+# X10miniproUV module configuration
+#
+
+config MIMMI_UNDERVOLT
+	tristate "Mimmi undervolt"
+	help
+	  Say Y here if you want to build an undervolt module for X10minipro
+
+	  If unsure, say N.
+
+	  To compile this module, choose M here: the
+	  module will be called x10miniprouv.
+

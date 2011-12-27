@@ -1405,6 +1405,8 @@ source "drivers/oc_shakira/Kconfig"
 
 source "drivers/uv_shakira/Kconfig"
 
+source "drivers/uv_mimmi/Kconfig"
+
 endmenu
 
 source "fs/Kconfig"
