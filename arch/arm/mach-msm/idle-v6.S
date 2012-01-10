@@ -29,9 +29,9 @@ ENTRY(msm_arch_idle)
 	mov     r0, #0
 	mcr     p15, 0, r0, c7, c10, 0   /* flush entire data cache */
 	mcr     p15, 0, r0, c7, c10, 4   /* dsb                */
-	stmfd   sp!, {r2, lr}            /* preserve r2, thus CPSR and LR */
+	stmfd   sp!, {r0,r2,lr}
 	bl      write_to_strongly_ordered_memory  /* flush AXI bus buffer */
-	ldmfd   sp!, {r2, lr}
+	ldmfd   sp!, {r0,r2,lr}
 	mcr     p15, 0, r0, c7, c0, 4    /* wait for interrupt */
 #else
 	mrc     p15, 0, r1, c1, c0, 0    /* read current CR    */
@@ -51,7 +51,7 @@ ENTRY(msm_arch_idle)
 	mcr     p15, 0, r0, c7, c5, 4    /* isb                */
 #endif
 
-	msr	cpsr_c, r2		/* restore the CPSR state */
+	msr	cpsr, r2
 	mov     pc, lr
 
 ENTRY(msm_pm_collapse)
