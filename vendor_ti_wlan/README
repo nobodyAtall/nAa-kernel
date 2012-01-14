@@ -1,0 +1,8 @@
+unified wilink 1271/1273 drivers for SEMC devices
+
+
+i set an shitch depending on kernel version 
+if version < 2.6.30 drivers will be built for board delta 
+
+otherwise for board mogami 
+
