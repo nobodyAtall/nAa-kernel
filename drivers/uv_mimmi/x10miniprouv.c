@@ -17,7 +17,7 @@
 #define DXDBG(x)					
 
 #define DEVICE_NAME				"X10minipro"
-#define OFS_KALLSYMS_LOOKUP_NAME	0xc00adec8			// kallsyms_lookup_name for nAa-08 x10minipro
+#define OFS_KALLSYMS_LOOKUP_NAME 0xc00adec8
 
 // struct definition
 struct clkctl_acpu_speed_dx {
