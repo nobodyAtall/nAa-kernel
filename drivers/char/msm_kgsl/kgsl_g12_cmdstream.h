@@ -29,24 +29,24 @@
 #ifndef _GSL_CMDSTREAM_H
 #define _GSL_CMDSTREAM_H
 
-#include <linux/types.h>
 #include <linux/msm_kgsl.h>
-#include "kgsl_device.h"
-#include <linux/mutex.h>
-#include <linux/msm_kgsl.h>
-#include "kgsl_sharedmem.h"
 
 struct kgsl_device;
+struct kgsl_device_private;
+struct kgsl_context;
 
-int kgsl_g12_cmdstream_check_timestamp(struct kgsl_device *device,
-					unsigned int timestamp);
-int kgsl_g12_cmdstream_issueibcmds(struct kgsl_device *device,
-			struct kgsl_pagetable *pagetable,
-			int drawctxt_index,
-			uint32_t ibaddr,
-			int sizedwords,
-			int *timestamp,
+int kgsl_g12_cmdstream_init(struct kgsl_device *device);
+
+int kgsl_g12_cmdstream_start(struct kgsl_device *device);
+
+void kgsl_g12_cmdstream_close(struct kgsl_device *device);
+
+unsigned int kgsl_g12_cmdstream_readtimestamp(struct kgsl_device *device,
+					enum kgsl_timestamp_type unused);
+int kgsl_g12_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
+			struct kgsl_context *context,
+			struct kgsl_ibdesc *ibdesc,
+			unsigned int numibs,
+			uint32_t *timestamp,
 			unsigned int ctrl);
-int kgsl_g12_cmdstream_addtimestamp(struct kgsl_device *device,
-			  int *timestamp);
 #endif  /* _GSL_CMDSTREAM_H */

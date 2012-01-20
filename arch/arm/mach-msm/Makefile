@@ -113,6 +113,11 @@ obj-$(CONFIG_HTC_HEADSET) += htc_headset.o
 obj-$(CONFIG_MSM_RMT_STORAGE_SERVER) += rmt_storage_server.o
 obj-$(CONFIG_PMIC8058) += pmic8058-gpio.o pmic8058-mpp.o
 
+obj-$(CONFIG_MSM_BUS_SCALING)	+= msm_bus_core.o msm_bus_fabric.o msm_bus_board_8660.o
+ifdef CONFIG_MSM_BUS_SCALING
+obj-$(CONFIG_DEBUG_FS) += msm_bus_dbg.o
+endif
+
 obj-$(CONFIG_SEMC_SEPORT_PLATFORM) += semc_seport_platform.o
 
 obj-$(CONFIG_DELTA_PROXIMITY_SENSOR) += proximity_platform_delta.o

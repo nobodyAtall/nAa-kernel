@@ -295,6 +295,20 @@ static inline void outer_flush_range(unsigned long start, unsigned long end)
 
 #endif
 
+
+#ifdef CONFIG_OUTER_CACHE_SYNC
+static inline void outer_sync(void)
+{
+	if (outer_cache.sync)
+		outer_cache.sync();
+}
+#else
+static inline void outer_sync(void)
+{ }
+#endif
+
+
+
 /*
  * Copy user data from/to a page which is mapped into a different
  * processes address space.  Really, we want to allow our "user

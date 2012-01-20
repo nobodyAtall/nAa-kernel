@@ -1,69 +1,34 @@
-/* Copyright (c) 2002,2007-2009, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2002,2007-2011, Code Aurora Forum. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *     * Neither the name of Code Aurora Forum nor
- *       the names of its contributors may be used to endorse or promote
- *       products derived from this software without specific prior written
- *       permission.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
  *
- * Alternatively, provided that this notice is retained in full, this software
- * may be relicensed by the recipient under the terms of the GNU General Public
- * License version 2 ("GPL") and only version 2, in which case the provisions of
- * the GPL apply INSTEAD OF those given above.  If the recipient relicenses the
- * software under the GPL, then the identification text in the MODULE_LICENSE
- * macro must be changed to reflect "GPLv2" instead of "Dual BSD/GPL".  Once a
- * recipient changes the license terms to the GPL, subsequent recipients shall
- * not relicense under alternate licensing terms, including the BSD or dual
- * BSD/GPL terms.  In addition, the following license statement immediately
- * below and between the words START and END shall also then apply when this
- * software is relicensed under the GPL:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * START
- *
- * This program is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License version 2 and only version 2 as
- * published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
- * details.
- *
- * You should have received a copy of the GNU General Public License along with
- * this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * END
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+ * 02110-1301, USA.
  *
  */
 #include <linux/string.h>
 #include <linux/types.h>
+#include <linux/slab.h>
 #include <linux/msm_kgsl.h>
 
-#include "kgsl_drawctxt.h"
-
 #include "yamato_reg.h"
+#include "leia_reg.h"
 #include "kgsl.h"
+#include "kgsl_yamato.h"
 #include "kgsl_log.h"
 #include "kgsl_pm4types.h"
+#include "kgsl_drawctxt.h"
+#include "kgsl_cmdstream.h"
+#include "kgsl_cffdump.h"
 
 /*
 *
@@ -113,7 +78,7 @@
 
 #define ALU_CONSTANTS	2048	/* DWORDS */
 #define NUM_REGISTERS	1024	/* DWORDS */
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 #define CMD_BUFFER_LEN  9216	/* DWORDS */
 #else
 #define CMD_BUFFER_LEN	3072	/* DWORDS */
@@ -135,7 +100,7 @@
 
 #define ALU_SHADOW_SIZE		LCC_SHADOW_SIZE	/* 8KB */
 #define REG_SHADOW_SIZE		0x1000	/* 4KB */
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 #define CMD_BUFFER_SIZE     0x9000	/* 36KB */
 #else
 #define CMD_BUFFER_SIZE		0x3000	/* 12KB */
@@ -168,7 +133,7 @@ struct tmp_ctx {
 	/* Addresses in command buffer where separately handled registers
 	 * are saved
 	 */
-	uint32_t reg_values[4];
+	uint32_t reg_values[33];
 	uint32_t chicken_restore;
 
 	uint32_t gmem_base;	/* Base gpu address of GMEM */
@@ -425,7 +390,7 @@ static unsigned int gpuaddr(unsigned int *cmd, struct kgsl_memdesc *memdesc)
 }
 
 static void
-create_ib1(struct kgsl_drawctxt *drawctxt, unsigned int *cmd,
+create_ib1(struct kgsl_yamato_context *drawctxt, unsigned int *cmd,
 	   unsigned int *start, unsigned int *end)
 {
 	cmd[0] = PM4_HDR_INDIRECT_BUFFER_PFD;
@@ -462,11 +427,11 @@ static unsigned int *reg_to_mem(unsigned int *cmds, uint32_t dst,
 	return cmds;
 }
 
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 
 static void build_reg_to_mem_range(unsigned int start, unsigned int end,
 				   unsigned int **cmd,
-				   struct kgsl_drawctxt *drawctxt)
+				   struct kgsl_yamato_context *drawctxt)
 {
 	unsigned int i = start;
 
@@ -482,8 +447,9 @@ static void build_reg_to_mem_range(unsigned int start, unsigned int end,
 #endif
 
 /* chicken restore */
-static unsigned int *build_chicken_restore_cmds(struct kgsl_drawctxt *drawctxt,
-						struct tmp_ctx *ctx)
+static unsigned int *build_chicken_restore_cmds(
+					struct kgsl_yamato_context *drawctxt,
+					struct tmp_ctx *ctx)
 {
 	unsigned int *start = ctx->cmd;
 	unsigned int *cmds = start;
@@ -505,7 +471,7 @@ static unsigned int *build_chicken_restore_cmds(struct kgsl_drawctxt *drawctxt,
 *  requires: bool_shadow_gpuaddr, loop_shadow_gpuaddr
 */
 static void build_regsave_cmds(struct kgsl_device *device,
-			       struct kgsl_drawctxt *drawctxt,
+			       struct kgsl_yamato_context *drawctxt,
 			       struct tmp_ctx *ctx)
 {
 	unsigned int *start = ctx->cmd;
@@ -514,44 +480,83 @@ static void build_regsave_cmds(struct kgsl_device *device,
 	*cmd++ = pm4_type3_packet(PM4_WAIT_FOR_IDLE, 1);
 	*cmd++ = 0;
 
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 	/* Make sure the HW context has the correct register values
 	 * before reading them. */
 	*cmd++ = pm4_type3_packet(PM4_CONTEXT_UPDATE, 1);
 	*cmd++ = 0;
 #endif
 
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 	/* Write HW registers into shadow */
-	build_reg_to_mem_range(REG_RB_SURFACE_INFO, REG_RB_DEPTH_INFO, &cmd,
-			       drawctxt);
+	build_reg_to_mem_range(REG_RB_SURFACE_INFO, REG_RB_DEPTH_INFO,
+				&cmd, drawctxt);
 	build_reg_to_mem_range(REG_COHER_DEST_BASE_0,
-			       REG_PA_SC_SCREEN_SCISSOR_BR, &cmd, drawctxt);
+				REG_PA_SC_SCREEN_SCISSOR_BR,
+				&cmd, drawctxt);
 	build_reg_to_mem_range(REG_PA_SC_WINDOW_OFFSET,
-			       REG_PA_SC_WINDOW_SCISSOR_BR, &cmd, drawctxt);
-	build_reg_to_mem_range(REG_VGT_MAX_VTX_INDX, REG_RB_FOG_COLOR, &cmd,
-			       drawctxt);
+				REG_PA_SC_WINDOW_SCISSOR_BR,
+				&cmd, drawctxt);
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		build_reg_to_mem_range(REG_VGT_MAX_VTX_INDX, REG_RB_FOG_COLOR,
+				&cmd, drawctxt);
+	} else {
+		build_reg_to_mem_range(REG_LEIA_PC_MAX_VTX_INDX,
+				REG_LEIA_PC_INDX_OFFSET,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_RB_COLOR_MASK,
+				REG_RB_FOG_COLOR,
+				&cmd, drawctxt);
+	}
 	build_reg_to_mem_range(REG_RB_STENCILREFMASK_BF,
-			       REG_PA_CL_VPORT_ZOFFSET, &cmd, drawctxt);
-	build_reg_to_mem_range(REG_SQ_PROGRAM_CNTL, REG_SQ_WRAPPING_1, &cmd,
-			       drawctxt);
-	build_reg_to_mem_range(REG_RB_DEPTHCONTROL, REG_RB_MODECONTROL, &cmd,
-			       drawctxt);
-	build_reg_to_mem_range(REG_PA_SU_POINT_SIZE, REG_PA_SC_LINE_STIPPLE,
-			       &cmd, drawctxt);
-	build_reg_to_mem_range(REG_PA_SC_VIZ_QUERY, REG_PA_SC_VIZ_QUERY, &cmd,
-			       drawctxt);
-	build_reg_to_mem_range(REG_PA_SC_LINE_CNTL, REG_SQ_PS_CONST, &cmd,
-			       drawctxt);
-	build_reg_to_mem_range(REG_PA_SC_AA_MASK, REG_PA_SC_AA_MASK, &cmd,
-			       drawctxt);
-	build_reg_to_mem_range(REG_VGT_VERTEX_REUSE_BLOCK_CNTL,
-			       REG_RB_DEPTH_CLEAR, &cmd, drawctxt);
-	build_reg_to_mem_range(REG_RB_SAMPLE_COUNT_CTL, REG_RB_COLOR_DEST_MASK,
-			       &cmd, drawctxt);
+				REG_PA_CL_VPORT_ZOFFSET,
+				&cmd, drawctxt);
+	build_reg_to_mem_range(REG_SQ_PROGRAM_CNTL, REG_SQ_WRAPPING_1,
+				&cmd, drawctxt);
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		build_reg_to_mem_range(REG_RB_DEPTHCONTROL, REG_RB_MODECONTROL,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_PA_SU_POINT_SIZE,
+				REG_PA_SC_LINE_STIPPLE,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_PA_SC_VIZ_QUERY, REG_PA_SC_VIZ_QUERY,
+				&cmd, drawctxt);
+	} else {
+		build_reg_to_mem_range(REG_RB_DEPTHCONTROL,
+				REG_RB_COLORCONTROL,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_PA_CL_CLIP_CNTL,
+				REG_PA_CL_VTE_CNTL,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_RB_MODECONTROL,
+				REG_LEIA_GRAS_CONTROL,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_PA_SU_POINT_SIZE,
+				REG_PA_SU_LINE_CNTL,
+				&cmd, drawctxt);
+	}
+	build_reg_to_mem_range(REG_PA_SC_LINE_CNTL, REG_SQ_PS_CONST,
+				&cmd, drawctxt);
+	build_reg_to_mem_range(REG_PA_SC_AA_MASK, REG_PA_SC_AA_MASK,
+				&cmd, drawctxt);
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		build_reg_to_mem_range(REG_VGT_VERTEX_REUSE_BLOCK_CNTL,
+				REG_RB_DEPTH_CLEAR,
+				&cmd, drawctxt);
+	} else {
+		build_reg_to_mem_range(REG_LEIA_PC_VERTEX_REUSE_BLOCK_CNTL,
+				REG_LEIA_PC_VERTEX_REUSE_BLOCK_CNTL,
+				&cmd, drawctxt);
+		build_reg_to_mem_range(REG_RB_COPY_CONTROL,
+				REG_RB_DEPTH_CLEAR,
+				&cmd, drawctxt);
+	}
+	build_reg_to_mem_range(REG_RB_SAMPLE_COUNT_CTL,
+				REG_RB_COLOR_DEST_MASK,
+				&cmd, drawctxt);
 	build_reg_to_mem_range(REG_PA_SU_POLY_OFFSET_FRONT_SCALE,
-			       REG_PA_SU_POLY_OFFSET_BACK_OFFSET, &cmd,
-			       drawctxt);
+				REG_PA_SU_POLY_OFFSET_BACK_OFFSET,
+				&cmd, drawctxt);
 
 	/* Copy ALU constants */
 	cmd =
@@ -612,6 +617,18 @@ static void build_regsave_cmds(struct kgsl_device *device,
 	*cmd++ = REG_RBBM_PM_OVERRIDE2;
 	*cmd++ = ctx->reg_values[2];
 
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470) {
+		unsigned int i;
+		unsigned int j = 3;
+		for (i = REG_LEIA_VSC_BIN_SIZE; i <=
+				REG_LEIA_VSC_PIPE_DATA_LENGTH_7; i++) {
+			*cmd++ = pm4_type3_packet(PM4_REG_TO_MEM, 2);
+			*cmd++ = i;
+			*cmd++ = ctx->reg_values[j];
+			j++;
+		}
+	}
+
 	/* Copy Boolean constants */
 	cmd = reg_to_mem(cmd, ctx->bool_shadow, REG_SQ_CF_BOOLEANS,
 			 BOOL_CONSTANTS);
@@ -627,7 +644,7 @@ static void build_regsave_cmds(struct kgsl_device *device,
 
 /*copy colour, depth, & stencil buffers from graphics memory to system memory*/
 static unsigned int *build_gmem2sys_cmds(struct kgsl_device *device,
-					 struct kgsl_drawctxt *drawctxt,
+					 struct kgsl_yamato_context *drawctxt,
 					 struct tmp_ctx *ctx,
 					 struct gmem_shadow_t *shadow)
 {
@@ -693,7 +710,10 @@ static unsigned int *build_gmem2sys_cmds(struct kgsl_device *device,
 	/* SQ_PROGRAM_CNTL / SQ_CONTEXT_MISC */
 	*cmds++ = pm4_type3_packet(PM4_SET_CONSTANT, 3);
 	*cmds++ = PM4_REG(REG_SQ_PROGRAM_CNTL);
-	*cmds++ = 0x10010001;
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470)
+		*cmds++ = 0x10018001;
+	else
+		*cmds++ = 0x10010001;
 	*cmds++ = 0x00000008;
 
 	/* resolve */
@@ -728,7 +748,10 @@ static unsigned int *build_gmem2sys_cmds(struct kgsl_device *device,
 	/* disable Z */
 	*cmds++ = pm4_type3_packet(PM4_SET_CONSTANT, 2);
 	*cmds++ = PM4_REG(REG_RB_DEPTHCONTROL);
-	*cmds++ = 0;
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470)
+		*cmds++ = 0x08;
+	else
+		*cmds++ = 0;
 
 	/* set REG_PA_SU_SC_MODE_CNTL
 	 *              Front_ptype = draw triangles
@@ -782,11 +805,20 @@ static unsigned int *build_gmem2sys_cmds(struct kgsl_device *device,
 	*cmds++ = PM4_REG(REG_RB_MODECONTROL);
 	*cmds++ = 0x6;		/* EDRAM copy */
 
-	/* queue the draw packet */
-	*cmds++ = pm4_type3_packet(PM4_DRAW_INDX, 2);
-	*cmds++ = 0;		/* viz query info. */
-	/* PrimType=RectList, NumIndices=3, SrcSel=AutoIndex */
-	*cmds++ = 0x00030088;
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470) {
+		*cmds++ = 0xc0043600; /* packet 3 3D_DRAW_INDX_2 */
+		*cmds++ = 0x0;
+		*cmds++ = 0x00004046; /* tristrip */
+		*cmds++ = 0x00000004; /* NUM_INDICES */
+		*cmds++ = 0x00010000; /* index: 0x00, 0x01 */
+		*cmds++ = 0x00030002; /* index: 0x02, 0x03 */
+	} else {
+		/* queue the draw packet */
+		*cmds++ = pm4_type3_packet(PM4_DRAW_INDX, 2);
+		*cmds++ = 0;		/* viz query info. */
+		/* PrimType=RectList, NumIndices=3, SrcSel=AutoIndex */
+		*cmds++ = 0x00030088;
+	}
 
 	/* create indirect buffer command for above command sequence */
 	create_ib1(drawctxt, shadow->gmem_save, start, cmds);
@@ -798,7 +830,7 @@ static unsigned int *build_gmem2sys_cmds(struct kgsl_device *device,
 
 /*copy colour, depth, & stencil buffers from system memory to graphics memory*/
 static unsigned int *build_sys2gmem_cmds(struct kgsl_device *device,
-					 struct kgsl_drawctxt *drawctxt,
+					 struct kgsl_yamato_context *drawctxt,
 					 struct tmp_ctx *ctx,
 					 struct gmem_shadow_t *shadow)
 {
@@ -860,10 +892,12 @@ static unsigned int *build_sys2gmem_cmds(struct kgsl_device *device,
 	*cmds++ = PM4_REG(REG_PA_SC_AA_MASK);
 	*cmds++ = 0x0000ffff;	/* REG_PA_SC_AA_MASK */
 
-	/* PA_SC_VIZ_QUERY */
-	*cmds++ = pm4_type3_packet(PM4_SET_CONSTANT, 2);
-	*cmds++ = PM4_REG(REG_PA_SC_VIZ_QUERY);
-	*cmds++ = 0x0;		/*REG_PA_SC_VIZ_QUERY */
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		/* PA_SC_VIZ_QUERY */
+		*cmds++ = pm4_type3_packet(PM4_SET_CONSTANT, 2);
+		*cmds++ = PM4_REG(REG_PA_SC_VIZ_QUERY);
+		*cmds++ = 0x0;		/*REG_PA_SC_VIZ_QUERY */
+	}
 
 	/* RB_COLORCONTROL */
 	*cmds++ = pm4_type3_packet(PM4_SET_CONSTANT, 2);
@@ -935,7 +969,11 @@ static unsigned int *build_sys2gmem_cmds(struct kgsl_device *device,
 	/* RB_DEPTHCONTROL */
 	*cmds++ = pm4_type3_packet(PM4_SET_CONSTANT, 2);
 	*cmds++ = PM4_REG(REG_RB_DEPTHCONTROL);
-	*cmds++ = 0;		/* disable Z */
+
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470)
+		*cmds++ = 8;		/* disable Z */
+	else
+		*cmds++ = 0;		/* disable Z */
 
 	/* Use maximum scissor values -- quad vertices already
 	 * have the correct bounds */
@@ -980,11 +1018,20 @@ static unsigned int *build_sys2gmem_cmds(struct kgsl_device *device,
 	/* draw pixels with color and depth/stencil component */
 	*cmds++ = 0x4;
 
-	/* queue the draw packet */
-	*cmds++ = pm4_type3_packet(PM4_DRAW_INDX, 2);
-	*cmds++ = 0;		/* viz query info. */
-	/* PrimType=RectList, NumIndices=3, SrcSel=AutoIndex */
-	*cmds++ = 0x00030088;
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470) {
+		*cmds++ = 0xc0043600; /* packet 3 3D_DRAW_INDX_2 */
+		*cmds++ = 0x0;
+		*cmds++ = 0x00004046; /* tristrip */
+		*cmds++ = 0x00000004; /* NUM_INDICES */
+		*cmds++ = 0x00010000; /* index: 0x00, 0x01 */
+		*cmds++ = 0x00030002; /* index: 0x02, 0x03 */
+	} else {
+		/* queue the draw packet */
+		*cmds++ = pm4_type3_packet(PM4_DRAW_INDX, 2);
+		*cmds++ = 0;		/* viz query info. */
+		/* PrimType=RectList, NumIndices=3, SrcSel=AutoIndex */
+		*cmds++ = 0x00030088;
+	}
 
 	/* create indirect buffer command for above command sequence */
 	create_ib1(drawctxt, shadow->gmem_restore, start, cmds);
@@ -1002,7 +1049,7 @@ static unsigned *reg_range(unsigned int *cmd, unsigned int start,
 }
 
 static void build_regrestore_cmds(struct kgsl_device *device,
-				  struct kgsl_drawctxt *drawctxt,
+				  struct kgsl_yamato_context *drawctxt,
 				  struct tmp_ctx *ctx)
 {
 	unsigned int *start = ctx->cmd;
@@ -1014,24 +1061,55 @@ static void build_regrestore_cmds(struct kgsl_device *device,
 	/* H/W Registers */
 	/* deferred pm4_type3_packet(PM4_LOAD_CONSTANT_CONTEXT, ???); */
 	cmd++;
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 	/* Force mismatch */
 	*cmd++ = ((drawctxt->gpustate.gpuaddr + REG_OFFSET) & 0xFFFFE000) | 1;
 #else
 	*cmd++ = (drawctxt->gpustate.gpuaddr + REG_OFFSET) & 0xFFFFE000;
 #endif
 
-	cmd = reg_range(cmd, REG_RB_SURFACE_INFO, REG_PA_SC_SCREEN_SCISSOR_BR);
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		cmd = reg_range(cmd, REG_RB_SURFACE_INFO,
+				REG_PA_SC_SCREEN_SCISSOR_BR);
+	} else {
+		cmd = reg_range(cmd, REG_RB_SURFACE_INFO, REG_RB_DEPTH_INFO);
+		cmd = reg_range(cmd, REG_COHER_DEST_BASE_0,
+				REG_PA_SC_SCREEN_SCISSOR_BR);
+	}
 	cmd = reg_range(cmd, REG_PA_SC_WINDOW_OFFSET,
-			REG_PA_SC_WINDOW_SCISSOR_BR);
-	cmd = reg_range(cmd, REG_VGT_MAX_VTX_INDX, REG_PA_CL_VPORT_ZOFFSET);
+				REG_PA_SC_WINDOW_SCISSOR_BR);
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		cmd = reg_range(cmd, REG_VGT_MAX_VTX_INDX,
+				REG_PA_CL_VPORT_ZOFFSET);
+	} else {
+		cmd = reg_range(cmd, REG_LEIA_PC_MAX_VTX_INDX,
+				REG_LEIA_PC_INDX_OFFSET);
+		cmd = reg_range(cmd, REG_RB_COLOR_MASK, REG_RB_FOG_COLOR);
+		cmd = reg_range(cmd, REG_RB_STENCILREFMASK_BF,
+				REG_PA_CL_VPORT_ZOFFSET);
+	}
 	cmd = reg_range(cmd, REG_SQ_PROGRAM_CNTL, REG_SQ_WRAPPING_1);
-	cmd = reg_range(cmd, REG_RB_DEPTHCONTROL, REG_RB_MODECONTROL);
-	cmd = reg_range(cmd, REG_PA_SU_POINT_SIZE,
-			REG_PA_SC_VIZ_QUERY); /*REG_VGT_ENHANCE */
-	cmd = reg_range(cmd, REG_PA_SC_LINE_CNTL, REG_RB_COLOR_DEST_MASK);
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470) {
+		cmd = reg_range(cmd, REG_RB_DEPTHCONTROL, REG_RB_MODECONTROL);
+		cmd = reg_range(cmd, REG_PA_SU_POINT_SIZE,
+				REG_PA_SC_VIZ_QUERY); /*REG_VGT_ENHANCE */
+		cmd = reg_range(cmd, REG_PA_SC_LINE_CNTL,
+				REG_RB_COLOR_DEST_MASK);
+	} else {
+		cmd = reg_range(cmd, REG_RB_DEPTHCONTROL, REG_RB_COLORCONTROL);
+		cmd = reg_range(cmd, REG_PA_CL_CLIP_CNTL, REG_PA_CL_VTE_CNTL);
+		cmd = reg_range(cmd, REG_RB_MODECONTROL, REG_LEIA_GRAS_CONTROL);
+		cmd = reg_range(cmd, REG_PA_SU_POINT_SIZE, REG_PA_SU_LINE_CNTL);
+		cmd = reg_range(cmd, REG_PA_SC_LINE_CNTL, REG_SQ_PS_CONST);
+		cmd = reg_range(cmd, REG_PA_SC_AA_MASK, REG_PA_SC_AA_MASK);
+		cmd = reg_range(cmd, REG_LEIA_PC_VERTEX_REUSE_BLOCK_CNTL,
+				REG_LEIA_PC_VERTEX_REUSE_BLOCK_CNTL);
+		cmd = reg_range(cmd, REG_RB_COPY_CONTROL, REG_RB_DEPTH_CLEAR);
+		cmd = reg_range(cmd, REG_RB_SAMPLE_COUNT_CTL,
+				REG_RB_COLOR_DEST_MASK);
+	}
 	cmd = reg_range(cmd, REG_PA_SU_POLY_OFFSET_FRONT_SCALE,
-			REG_PA_SU_POLY_OFFSET_BACK_OFFSET);
+				REG_PA_SU_POLY_OFFSET_BACK_OFFSET);
 
 	/* Now we know how many register blocks we have, we can compute command
 	 * length
@@ -1039,7 +1117,7 @@ static void build_regrestore_cmds(struct kgsl_device *device,
 	start[2] =
 	    pm4_type3_packet(PM4_LOAD_CONSTANT_CONTEXT, (cmd - start) - 3);
 	/* Enable shadowing for the entire register block. */
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 	start[4] |= (0 << 24) | (4 << 16);	/* Disable shadowing. */
 #else
 	start[4] |= (1 << 24) | (4 << 16);
@@ -1058,12 +1136,27 @@ static void build_regrestore_cmds(struct kgsl_device *device,
 
 	*cmd++ = pm4_type0_packet(REG_RBBM_PM_OVERRIDE2, 1);
 	ctx->reg_values[2] = gpuaddr(cmd, &drawctxt->gpustate);
-	*cmd++ = 0x00000000;
+	if (device->chip_id != KGSL_CHIPID_LEIA_REV470)
+		*cmd++ = 0x00000000;
+	else
+		*cmd++ = 0x80;
+
+	if (device->chip_id == KGSL_CHIPID_LEIA_REV470) {
+		unsigned int i;
+		unsigned int j = 3;
+		for (i = REG_LEIA_VSC_BIN_SIZE; i <=
+				REG_LEIA_VSC_PIPE_DATA_LENGTH_7; i++) {
+			*cmd++ = pm4_type0_packet(i, 1);
+			ctx->reg_values[j] = gpuaddr(cmd, &drawctxt->gpustate);
+			*cmd++ = 0x00000000;
+			j++;
+		}
+	}
 
 	/* ALU Constants */
 	*cmd++ = pm4_type3_packet(PM4_LOAD_CONSTANT_CONTEXT, 3);
 	*cmd++ = drawctxt->gpustate.gpuaddr & 0xFFFFE000;
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 	*cmd++ = (0 << 24) | (0 << 16) | 0;	/* Disable shadowing */
 #else
 	*cmd++ = (1 << 24) | (0 << 16) | 0;
@@ -1073,7 +1166,7 @@ static void build_regrestore_cmds(struct kgsl_device *device,
 	/* Texture Constants */
 	*cmd++ = pm4_type3_packet(PM4_LOAD_CONSTANT_CONTEXT, 3);
 	*cmd++ = (drawctxt->gpustate.gpuaddr + TEX_OFFSET) & 0xFFFFE000;
-#ifdef DISABLE_SHADOW_WRITES
+#ifdef CONFIG_MSM_KGSL_DISABLE_SHADOW_WRITES
 	/* Disable shadowing */
 	*cmd++ = (0 << 24) | (1 << 16) | 0;
 #else
@@ -1131,7 +1224,7 @@ static void set_gmem_copy_quad(struct gmem_shadow_t *shadow)
 }
 
 /* quad for saving/restoring gmem */
-static void build_quad_vtxbuff(struct kgsl_drawctxt *drawctxt,
+static void build_quad_vtxbuff(struct kgsl_yamato_context *drawctxt,
 		       struct tmp_ctx *ctx, struct gmem_shadow_t *shadow)
 {
 	unsigned int *cmd = ctx->cmd;
@@ -1154,7 +1247,7 @@ static void build_quad_vtxbuff(struct kgsl_drawctxt *drawctxt,
 }
 
 static void
-build_shader_save_restore_cmds(struct kgsl_drawctxt *drawctxt,
+build_shader_save_restore_cmds(struct kgsl_yamato_context *drawctxt,
 			       struct tmp_ctx *ctx)
 {
 	unsigned int *cmd = ctx->cmd;
@@ -1295,25 +1388,17 @@ build_shader_save_restore_cmds(struct kgsl_drawctxt *drawctxt,
 /* create buffers for saving/restoring registers, constants, & GMEM */
 static int
 create_gpustate_shadow(struct kgsl_device *device,
-		       struct kgsl_drawctxt *drawctxt, struct tmp_ctx *ctx)
+		       struct kgsl_yamato_context *drawctxt,
+		       struct tmp_ctx *ctx)
 {
-	uint32_t flags;
+	int result;
 
-	flags = (KGSL_MEMFLAGS_CONPHYS | KGSL_MEMFLAGS_ALIGN8K);
+	/* Allocate vmalloc memory to store the gpustate */
+	result = kgsl_sharedmem_vmalloc(&drawctxt->gpustate,
+					drawctxt->pagetable, CONTEXT_SIZE);
 
-	/* allocate memory to allow HW to save sub-blocks for efficient context
-	 *  save/restore
-	 */
-	if (kgsl_sharedmem_alloc(flags, CONTEXT_SIZE, &drawctxt->gpustate) != 0)
-		return -ENOMEM;
-	if (kgsl_mmu_map(drawctxt->pagetable, drawctxt->gpustate.physaddr,
-			 drawctxt->gpustate.size,
-			 GSL_PT_PAGE_RV | GSL_PT_PAGE_WV,
-			 &drawctxt->gpustate.gpuaddr,
-			 KGSL_MEMFLAGS_CONPHYS | KGSL_MEMFLAGS_ALIGN8K)) {
-		kgsl_sharedmem_free(&drawctxt->gpustate);
-		return -EINVAL;
-	}
+	if (result)
+		return result;
 
 	drawctxt->flags |= CTXT_FLAGS_STATE_SHADOW;
 
@@ -1331,35 +1416,35 @@ create_gpustate_shadow(struct kgsl_device *device,
 
 	build_shader_save_restore_cmds(drawctxt, ctx);
 
+	kgsl_cache_range_op((unsigned int) drawctxt->gpustate.hostptr,
+			    drawctxt->gpustate.size,
+			    KGSL_MEMFLAGS_VMALLOC_MEM
+			    | KGSL_MEMFLAGS_CACHE_FLUSH);
+
 	return 0;
 }
 
 /* create buffers for saving/restoring registers, constants, & GMEM */
 static int
-create_gmem_shadow(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
+create_gmem_shadow(struct kgsl_yamato_device *yamato_device,
+		   struct kgsl_yamato_context *drawctxt,
 		   struct tmp_ctx *ctx)
 {
-	unsigned int flags = KGSL_MEMFLAGS_CONPHYS | KGSL_MEMFLAGS_ALIGN8K, i;
+	struct kgsl_device *device = &yamato_device->dev;
+	int result;
+	int i;
 
 	config_gmemsize(&drawctxt->context_gmem_shadow,
-			device->gmemspace.sizebytes);
-	ctx->gmem_base = device->gmemspace.gpu_base;
+			yamato_device->gmemspace.sizebytes);
+	ctx->gmem_base = yamato_device->gmemspace.gpu_base;
 
-	/* allocate memory for GMEM shadow */
-	if (kgsl_sharedmem_alloc(flags, drawctxt->context_gmem_shadow.size,
-				 &drawctxt->context_gmem_shadow.gmemshadow) !=
-	    0)
-		return -ENOMEM;
-	if (kgsl_mmu_map(drawctxt->pagetable,
-			 drawctxt->context_gmem_shadow.gmemshadow.physaddr,
-			 drawctxt->context_gmem_shadow.gmemshadow.size,
-			 GSL_PT_PAGE_RV | GSL_PT_PAGE_WV,
-			 &drawctxt->context_gmem_shadow.gmemshadow.gpuaddr,
-			 KGSL_MEMFLAGS_CONPHYS | KGSL_MEMFLAGS_ALIGN8K)) {
-		kgsl_sharedmem_free(&drawctxt->context_gmem_shadow.
-					gmemshadow);
-		return -EINVAL;
-	}
+	result = kgsl_sharedmem_vmalloc(
+				&drawctxt->context_gmem_shadow.gmemshadow,
+			       drawctxt->pagetable,
+			       drawctxt->context_gmem_shadow.size);
+
+	if (result)
+		return result;
 
 	/* we've allocated the shadow, when swapped out, GMEM must be saved. */
 	drawctxt->flags |= CTXT_FLAGS_GMEM_SHADOW | CTXT_FLAGS_GMEM_SAVE;
@@ -1401,6 +1486,12 @@ create_gmem_shadow(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 					&drawctxt->user_gmem_shadow[i]);
 	}
 
+	kgsl_cache_range_op((unsigned int)
+			    drawctxt->context_gmem_shadow.gmemshadow.hostptr,
+			    drawctxt->context_gmem_shadow.size,
+			    KGSL_MEMFLAGS_VMALLOC_MEM
+			    | KGSL_MEMFLAGS_CACHE_FLUSH);
+
 	return 0;
 }
 
@@ -1414,142 +1505,113 @@ int kgsl_drawctxt_init(struct kgsl_device *device)
 /* close draw context */
 int kgsl_drawctxt_close(struct kgsl_device *device)
 {
+	struct kgsl_yamato_device *yamato_device = KGSL_YAMATO_DEVICE(device);
+	yamato_device->drawctxt_active = NULL;
 	return 0;
 }
 
 /* create a new drawing context */
 
 int
-kgsl_drawctxt_create(struct kgsl_device *device,
-		     struct kgsl_pagetable *pagetable,
-		     unsigned int flags, unsigned int *drawctxt_id)
+kgsl_drawctxt_create(struct kgsl_device_private *dev_priv, uint32_t flags,
+		     struct kgsl_context *context)
 {
-	struct kgsl_drawctxt *drawctxt;
-	int index;
+	struct kgsl_yamato_context *drawctxt;
+	struct kgsl_device *device = dev_priv->device;
+	struct kgsl_yamato_device *yamato_device = KGSL_YAMATO_DEVICE(device);
+	struct kgsl_pagetable *pagetable = dev_priv->process_priv->pagetable;
 	struct tmp_ctx ctx;
+	int ret;
 
-	KGSL_CTXT_INFO("pt %p flags %08x\n", pagetable, flags);
-	if (device->drawctxt_count >= KGSL_CONTEXT_MAX)
-		return -EINVAL;
+	drawctxt = kzalloc(sizeof(struct kgsl_yamato_context), GFP_KERNEL);
 
-	/* find a free context slot */
-	index = 0;
-	while (index < KGSL_CONTEXT_MAX) {
-		if (device->drawctxt[index].flags == CTXT_FLAGS_NOT_IN_USE)
-			break;
+	if (drawctxt == NULL)
+		return -ENOMEM;
 
-		index++;
-	}
-
-	if (index >= KGSL_CONTEXT_MAX)
-		return -EINVAL;
-
-	drawctxt = &device->drawctxt[index];
 	drawctxt->pagetable = pagetable;
-	drawctxt->flags = CTXT_FLAGS_IN_USE;
 	drawctxt->bin_base_offset = 0;
 
-	device->drawctxt_count++;
-
-	if (create_gpustate_shadow(device, drawctxt, &ctx)
-			!= 0) {
-		kgsl_drawctxt_destroy(device, index);
-		return -EINVAL;
-	}
+	ret = create_gpustate_shadow(device, drawctxt, &ctx);
+	if (ret)
+		goto err;
 
 	/* Save the shader instruction memory on context switching */
 	drawctxt->flags |= CTXT_FLAGS_SHADER_SAVE;
 
+	memset(drawctxt->user_gmem_shadow, 0,
+			sizeof(struct gmem_shadow_t) *
+			KGSL_MAX_GMEM_SHADOW_BUFFERS);
+	memset(&drawctxt->context_gmem_shadow.gmemshadow,
+			0, sizeof(struct kgsl_memdesc));
+
 	if (!(flags & KGSL_CONTEXT_NO_GMEM_ALLOC)) {
 		/* create gmem shadow */
-		memset(drawctxt->user_gmem_shadow, 0,
-		       sizeof(struct gmem_shadow_t) *
-				KGSL_MAX_GMEM_SHADOW_BUFFERS);
-
-		if (create_gmem_shadow(device, drawctxt, &ctx)
-				!= 0) {
-			kgsl_drawctxt_destroy(device, index);
-			return -EINVAL;
-		}
+		ret = create_gmem_shadow(yamato_device, drawctxt, &ctx);
+		if (ret != 0)
+			goto err;
 	}
 
 	BUG_ON(ctx.cmd - ctx.start > CMD_BUFFER_LEN);
 
-	*drawctxt_id = index;
-
-	KGSL_CTXT_INFO("return drawctxt_id %d\n", *drawctxt_id);
+	context->devctxt = drawctxt;
 	return 0;
+err:
+	kgsl_sharedmem_free(&drawctxt->gpustate);
+	kfree(drawctxt);
+	return ret;
 }
 
 /* destroy a drawing context */
 
-int kgsl_drawctxt_destroy(struct kgsl_device *device, unsigned int drawctxt_id)
+int kgsl_drawctxt_destroy(struct kgsl_device *device,
+			  struct kgsl_context *context)
 {
-	struct kgsl_drawctxt *drawctxt;
+	struct kgsl_yamato_device *yamato_device = KGSL_YAMATO_DEVICE(device);
+	struct kgsl_yamato_context *drawctxt = context->devctxt;
 
-	drawctxt = &device->drawctxt[drawctxt_id];
+	if (drawctxt == NULL)
+		return -EINVAL;
 
-	KGSL_CTXT_INFO("drawctxt_id %d ptr %p\n", drawctxt_id, drawctxt);
-	if (drawctxt->flags != CTXT_FLAGS_NOT_IN_USE) {
-		/* deactivate context */
-		if (device->drawctxt_active == drawctxt) {
-			/* no need to save GMEM or shader, the context is
-			 * being destroyed.
-			 */
-			drawctxt->flags &= ~(CTXT_FLAGS_GMEM_SAVE |
-					     CTXT_FLAGS_SHADER_SAVE |
-					     CTXT_FLAGS_GMEM_SHADOW |
-					     CTXT_FLAGS_STATE_SHADOW);
+	KGSL_CTXT_INFO("drawctxt_id ptr %p\n", drawctxt);
 
-			kgsl_drawctxt_switch(device, NULL, 0);
-		}
+	/* deactivate context */
+	if (yamato_device->drawctxt_active == drawctxt) {
+		/* no need to save GMEM or shader, the context is
+		 * being destroyed.
+		 */
+		drawctxt->flags &= ~(CTXT_FLAGS_GMEM_SAVE |
+				     CTXT_FLAGS_SHADER_SAVE |
+				     CTXT_FLAGS_GMEM_SHADOW |
+				     CTXT_FLAGS_STATE_SHADOW);
 
-		kgsl_yamato_idle(device, KGSL_TIMEOUT_DEFAULT);
-
-		/* destroy state shadow, if allocated */
-		if (drawctxt->gpustate.gpuaddr != 0) {
-			kgsl_mmu_unmap(drawctxt->pagetable,
-				       drawctxt->gpustate.gpuaddr,
-				       drawctxt->gpustate.size);
-			drawctxt->gpustate.gpuaddr = 0;
-		}
-		if (drawctxt->gpustate.physaddr != 0)
-			kgsl_sharedmem_free(&drawctxt->gpustate);
-
-		/* destroy gmem shadow, if allocated */
-		if (drawctxt->context_gmem_shadow.gmemshadow.gpuaddr != 0) {
-			kgsl_mmu_unmap(drawctxt->pagetable,
-			drawctxt->context_gmem_shadow.gmemshadow.gpuaddr,
-			drawctxt->context_gmem_shadow.gmemshadow.size);
-			drawctxt->context_gmem_shadow.gmemshadow.gpuaddr = 0;
-		}
-
-		if (drawctxt->context_gmem_shadow.gmemshadow.physaddr != 0)
-			kgsl_sharedmem_free(&drawctxt->context_gmem_shadow.
-					    gmemshadow);
-
-		drawctxt->flags = CTXT_FLAGS_NOT_IN_USE;
-
-		BUG_ON(device->drawctxt_count == 0);
-		device->drawctxt_count--;
+		kgsl_drawctxt_switch(yamato_device, NULL, 0);
 	}
+
+	kgsl_yamato_idle(device, KGSL_TIMEOUT_DEFAULT);
+
+	kgsl_sharedmem_free(&drawctxt->gpustate);
+	kgsl_sharedmem_free(&drawctxt->context_gmem_shadow.gmemshadow);
+
+	kfree(drawctxt);
+	context->devctxt = NULL;
+
 	KGSL_CTXT_INFO("return\n");
 	return 0;
 }
 
 /* Binds a user specified buffer as GMEM shadow area */
-int kgsl_drawctxt_bind_gmem_shadow(struct kgsl_device *device,
-		unsigned int drawctxt_id,
+int kgsl_drawctxt_bind_gmem_shadow(struct kgsl_yamato_device *yamato_device,
+		struct kgsl_context *context,
 		const struct kgsl_gmem_desc *gmem_desc,
 		unsigned int shadow_x,
 		unsigned int shadow_y,
 		const struct kgsl_buffer_desc
 		*shadow_buffer, unsigned int buffer_id)
 {
-	struct kgsl_drawctxt *drawctxt;
-
-    /* Shadow struct being modified */
-    struct gmem_shadow_t *shadow;
+	struct kgsl_device *device = &yamato_device->dev;
+	struct kgsl_yamato_context *drawctxt = context->devctxt;
+	/* Shadow struct being modified */
+	struct gmem_shadow_t *shadow;
 	unsigned int i;
 
 	if (device->flags & KGSL_FLAGS_SAFEMODE)
@@ -1557,7 +1619,8 @@ int kgsl_drawctxt_bind_gmem_shadow(struct kgsl_device *device,
 		* skips context switch */
 		return 0;
 
-	drawctxt = &device->drawctxt[drawctxt_id];
+	if (drawctxt == NULL)
+		return -EINVAL;
 
 	shadow = &drawctxt->user_gmem_shadow[buffer_id];
 
@@ -1580,12 +1643,10 @@ int kgsl_drawctxt_bind_gmem_shadow(struct kgsl_device *device,
 		BUG_ON(shadow_x % 2);  /* Needs to be a multiple of 2 */
 		BUG_ON(shadow_y % 2);  /* Needs to be a multiple of 2 */
 
-		BUG_ON(shadow_buffer->format < COLORX_4_4_4_4);
 		BUG_ON(shadow_buffer->format > COLORX_32_32_32_32_FLOAT);
 		/* Needs to be a multiple of 32 */
 		BUG_ON(shadow_buffer->pitch % 32);
 
-		BUG_ON(buffer_id < 0);
 		BUG_ON(buffer_id > KGSL_MAX_GMEM_SHADOW_BUFFERS);
 
 		width = gmem_desc->width;
@@ -1629,11 +1690,7 @@ int kgsl_drawctxt_bind_gmem_shadow(struct kgsl_device *device,
 		build_sys2gmem_cmds(device, drawctxt, NULL, shadow);
 
 		/* Release context GMEM shadow if found */
-		if (drawctxt->context_gmem_shadow.gmemshadow.physaddr != 0) {
-			kgsl_sharedmem_free(&drawctxt->context_gmem_shadow.
-					    gmemshadow);
-			drawctxt->context_gmem_shadow.gmemshadow.physaddr = 0;
-		}
+		kgsl_sharedmem_free(&drawctxt->context_gmem_shadow.gmemshadow);
 	}
 
 	/* Enable GMEM shadowing if we have any of the user buffers enabled */
@@ -1648,12 +1705,13 @@ int kgsl_drawctxt_bind_gmem_shadow(struct kgsl_device *device,
 
 /* set bin base offset */
 int kgsl_drawctxt_set_bin_base_offset(struct kgsl_device *device,
-					unsigned int drawctxt_id,
-					unsigned int offset)
+				      struct kgsl_context *context,
+				      unsigned int offset)
 {
-	struct kgsl_drawctxt *drawctxt;
+	struct kgsl_yamato_context *drawctxt = context->devctxt;
 
-	drawctxt = &device->drawctxt[drawctxt_id];
+	if (drawctxt == NULL)
+		return -EINVAL;
 
 	drawctxt->bin_base_offset = offset;
 
@@ -1662,10 +1720,13 @@ int kgsl_drawctxt_set_bin_base_offset(struct kgsl_device *device,
 
 /* switch drawing contexts */
 void
-kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
+kgsl_drawctxt_switch(struct kgsl_yamato_device *yamato_device,
+			struct kgsl_yamato_context *drawctxt,
 			unsigned int flags)
 {
-	struct kgsl_drawctxt *active_ctxt = device->drawctxt_active;
+	struct kgsl_yamato_context *active_ctxt =
+	  yamato_device->drawctxt_active;
+	struct kgsl_device *device = &yamato_device->dev;
 	unsigned int cmds[2];
 
 	if (drawctxt) {
@@ -1682,7 +1743,7 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 		return;
 
 	KGSL_CTXT_INFO("from %p to %p flags %d\n",
-			device->drawctxt_active, drawctxt, flags);
+			yamato_device->drawctxt_active, drawctxt, flags);
 	/* save old context*/
 	if (active_ctxt != NULL) {
 		KGSL_CTXT_INFO("active_ctxt flags %08x\n", active_ctxt->flags);
@@ -1693,8 +1754,8 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 		if (active_ctxt->flags & CTXT_FLAGS_SHADER_SAVE) {
 			/* save shader partitioning and instructions. */
 			KGSL_CTXT_DBG("save shader");
-			kgsl_ringbuffer_issuecmds(device, 1,
-					active_ctxt->shader_save, 3);
+			kgsl_ringbuffer_issuecmds(device, KGSL_CMD_FLAGS_PMODE,
+						  active_ctxt->shader_save, 3);
 
 			/* fixup shader partitioning parameter for
 			 *  SET_SHADER_BASES.
@@ -1716,7 +1777,8 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 			for (i = 0; i < KGSL_MAX_GMEM_SHADOW_BUFFERS; i++) {
 				if (active_ctxt->user_gmem_shadow[i].gmemshadow.
 				    size > 0) {
-					kgsl_ringbuffer_issuecmds(device, 1,
+					kgsl_ringbuffer_issuecmds(device,
+						KGSL_CMD_FLAGS_PMODE,
 					  active_ctxt->user_gmem_shadow[i].
 						gmem_save, 3);
 
@@ -1728,9 +1790,10 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 				}
 			}
 			if (numbuffers == 0) {
-				kgsl_ringbuffer_issuecmds(device, 1,
-					 active_ctxt->context_gmem_shadow.
-						gmem_save, 3);
+				kgsl_ringbuffer_issuecmds(device,
+				    KGSL_CMD_FLAGS_PMODE,
+				    active_ctxt->context_gmem_shadow.gmem_save,
+				    3);
 
 				/* Restore TP0_CHICKEN */
 				kgsl_ringbuffer_issuecmds(device, 0,
@@ -1741,7 +1804,7 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 		}
 	}
 
-	device->drawctxt_active = drawctxt;
+	yamato_device->drawctxt_active = drawctxt;
 
 	/* restore new context */
 	if (drawctxt != NULL) {
@@ -1749,6 +1812,13 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 		KGSL_CTXT_INFO("drawctxt flags %08x\n", drawctxt->flags);
 		KGSL_CTXT_DBG("restore pagetable");
 		kgsl_mmu_setstate(device, drawctxt->pagetable);
+
+#ifndef CONFIG_MSM_KGSL_CFF_DUMP_NO_CONTEXT_MEM_DUMP
+		kgsl_cffdump_syncmem(NULL, &drawctxt->gpustate,
+			drawctxt->gpustate.gpuaddr, LCC_SHADOW_SIZE +
+			REG_SHADOW_SIZE + CMD_BUFFER_SIZE + TEX_SHADOW_SIZE,
+			false);
+#endif
 
 		/* restore gmem.
 		 *  (note: changes shader. shader must not already be restored.)
@@ -1760,7 +1830,8 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 			for (i = 0; i < KGSL_MAX_GMEM_SHADOW_BUFFERS; i++) {
 				if (drawctxt->user_gmem_shadow[i].gmemshadow.
 				    size > 0) {
-					kgsl_ringbuffer_issuecmds(device, 1,
+					kgsl_ringbuffer_issuecmds(device,
+						KGSL_CMD_FLAGS_PMODE,
 					  drawctxt->user_gmem_shadow[i].
 						gmem_restore, 3);
 
@@ -1771,7 +1842,8 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 				}
 			}
 			if (numbuffers == 0) {
-				kgsl_ringbuffer_issuecmds(device, 1,
+				kgsl_ringbuffer_issuecmds(device,
+					KGSL_CMD_FLAGS_PMODE,
 				  drawctxt->context_gmem_shadow.gmem_restore,
 					3);
 
@@ -1796,7 +1868,8 @@ kgsl_drawctxt_switch(struct kgsl_device *device, struct kgsl_drawctxt *drawctxt,
 
 		cmds[0] = pm4_type3_packet(PM4_SET_BIN_BASE_OFFSET, 1);
 		cmds[1] = drawctxt->bin_base_offset;
-		kgsl_ringbuffer_issuecmds(device, 0, cmds, 2);
+		if (device->chip_id != KGSL_CHIPID_LEIA_REV470)
+			kgsl_ringbuffer_issuecmds(device, 0, cmds, 2);
 
 	} else
 		kgsl_mmu_setstate(device, device->mmu.defaultpagetable);

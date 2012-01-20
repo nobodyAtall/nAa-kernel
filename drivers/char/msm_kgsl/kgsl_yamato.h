@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2008-2010, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -26,13 +26,44 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#ifndef _GSL_CMDWINDOW_H
-#define _GSL_CMDWINDOW_H
+#ifndef _KGSL_YAMATO_H
+#define _KGSL_YAMATO_H
 
-struct kgsl_device;
+#include "kgsl_drawctxt.h"
+#include "kgsl_ringbuffer.h"
 
-int kgsl_g12_cmdwindow_write(struct kgsl_device *device,
-		enum kgsl_cmdwindow_type target, unsigned int addr,
-		unsigned int data);
+struct kgsl_yamato_device {
+	struct kgsl_device dev;    /* Must be first field in this struct */
+	struct kgsl_memregion gmemspace;
+	struct kgsl_yamato_context *drawctxt_active;
+	wait_queue_head_t ib1_wq;
+	unsigned int *pfp_fw;
+	size_t pfp_fw_size;
+	unsigned int *pm4_fw;
+	size_t pm4_fw_size;
+	struct kgsl_ringbuffer ringbuffer;
+};
 
-#endif /* _GSL_CMDWINDOW_H */
+
+irqreturn_t kgsl_yamato_isr(int irq, void *data);
+
+int __init kgsl_yamato_init(struct kgsl_device *device);
+int __init kgsl_yamato_init_pwrctrl(struct kgsl_device *device);
+
+int kgsl_yamato_close(struct kgsl_device *device);
+
+int kgsl_yamato_idle(struct kgsl_device *device, unsigned int timeout);
+void kgsl_yamato_regread(struct kgsl_device *device, unsigned int offsetwords,
+				unsigned int *value);
+void kgsl_yamato_regwrite(struct kgsl_device *device, unsigned int offsetwords,
+				unsigned int value);
+void kgsl_yamato_regread_isr(struct kgsl_device *device,
+			     unsigned int offsetwords,
+			     unsigned int *value);
+void kgsl_yamato_regwrite_isr(struct kgsl_device *device,
+			      unsigned int offsetwords,
+			      unsigned int value);
+struct kgsl_device *kgsl_get_yamato_generic_device(void);
+int kgsl_yamato_getfunctable(struct kgsl_functable *ftbl);
+
+#endif /*_KGSL_YAMATO_H */

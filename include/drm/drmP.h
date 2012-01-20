@@ -504,6 +504,18 @@ struct drm_sigdata {
 	struct drm_hw_lock *lock;
 };
 
+/**
+ * Kernel side of a mapping
+ */
+struct drm_local_map {
+	resource_size_t offset;	 /**< Requested physical address (0 for SAREA)*/
+	unsigned long size;	 /**< Requested physical size (bytes) */
+	enum drm_map_type type;	 /**< Type of memory to map */
+	enum drm_map_flags flags;	 /**< Flags */
+	void *handle;		 /**< User-space: "Handle" to pass to mmap() */
+				 /**< Kernel-space: kernel-virtual address */
+	int mtrr;		 /**< MTRR slot used */
+};
 
 /*
  * Generic memory manager structs
@@ -1329,6 +1341,7 @@ extern int drm_mm_add_space_to_tail(struct drm_mm *mm, unsigned long size);
 /* Graphics Execution Manager library functions (drm_gem.c) */
 int drm_gem_init(struct drm_device *dev);
 void drm_gem_destroy(struct drm_device *dev);
+void drm_gem_object_release(struct drm_gem_object *obj);
 void drm_gem_object_free(struct kref *kref);
 struct drm_gem_object *drm_gem_object_alloc(struct drm_device *dev,
 					    size_t size);

@@ -418,6 +418,16 @@ drm_gem_release(struct drm_device *dev, struct drm_file *file_private)
 	mutex_unlock(&dev->struct_mutex);
 }
 
+void
+drm_gem_object_release(struct drm_gem_object *obj)
+{
+	struct drm_device *dev = obj->dev;
+	fput(obj->filp);
+	atomic_dec(&dev->object_count);
+	atomic_sub(obj->size, &dev->object_memory);
+}
+EXPORT_SYMBOL(drm_gem_object_release);
+
 /**
  * Called after the last reference to the object has been lost.
  *

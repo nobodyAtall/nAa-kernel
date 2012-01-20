@@ -1460,13 +1460,16 @@ static struct resource kgsl_resources[] = {
        },
 };
 static struct kgsl_platform_data kgsl_pdata = {
-	.high_axi_3d = 128000, /*Max for 8K*/
+	.high_axi_3d = 128000, /* Max for 8K */
 	.max_grp2d_freq = 0,
 	.min_grp2d_freq = 0,
 	.set_grp2d_async = NULL,
 	.max_grp3d_freq = 0,
 	.min_grp3d_freq = 0,
 	.set_grp3d_async = NULL,
+	.imem_clk_name = "imem_clk",
+	.grp3d_clk_name = "grp_clk",
+	.grp2d0_clk_name = NULL,
 };
 
 static struct platform_device msm_device_kgsl = {

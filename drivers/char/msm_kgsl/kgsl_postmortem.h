@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2010, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -26,13 +26,14 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#ifndef _GSL_CMDWINDOW_H
-#define _GSL_CMDWINDOW_H
+
+#ifndef KGSL_POSTMORTEM_H
+#define KGSL_POSTMORTEM_H
 
 struct kgsl_device;
 
-int kgsl_g12_cmdwindow_write(struct kgsl_device *device,
-		enum kgsl_cmdwindow_type target, unsigned int addr,
-		unsigned int data);
+void kgsl_postmortem_init(struct dentry *);
 
-#endif /* _GSL_CMDWINDOW_H */
+int kgsl_postmortem_dump(struct kgsl_device *device);
+
+#endif /* KGSL_POSTMORTEM_H */

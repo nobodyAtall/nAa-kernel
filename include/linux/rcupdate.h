@@ -180,6 +180,26 @@ extern int rcu_scheduler_active;
 				})
 
 /**
+ * rcu_dereference_raw - fetch an RCU-protected pointer
+ *
+ * The caller must be within some flavor of RCU read-side critical
+ * section, or must be otherwise preventing the pointer from changing,
+ * for example, by holding an appropriate lock.  This pointer may later
+ * be safely dereferenced.  It is the caller's responsibility to have
+ * done the right thing, as this primitive does no checking of any kind.
+ *
+ * Inserts memory barriers on architectures that require them
+ * (currently only the Alpha), and, more importantly, documents
+ * exactly which pointers are protected by RCU.
+ */
+#define rcu_dereference_raw(p)	({ \
+				typeof(p) _________p1 = ACCESS_ONCE(p); \
+				smp_read_barrier_depends(); \
+				(_________p1); \
+				})
+
+
+/**
  * rcu_assign_pointer - assign (publicize) a pointer to a newly
  * initialized structure that will be dereferenced by RCU read-side
  * critical sections.  Returns the value assigned.
