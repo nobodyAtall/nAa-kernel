@@ -302,6 +302,30 @@ static struct seport_config seport_cfg = {
 	.initialize = &seport_initialize_gpio,
 };
 
+#ifdef CONFIG_MACH_MSM7X27_SHAKIRA
+#include <linux/keyreset.h>
+/* keyreset platform device */
+static int shakira_reset_keys_up[] = {
+	KEY_VOLUMEDOWN,
+	0
+};
+
+static struct keyreset_platform_data shakira_reset_keys_pdata = {
+	.keys_up = shakira_reset_keys_up,
+	.keys_down = {
+		KEY_POWER,
+		KEY_HOME,
+		0
+	},
+};
+
+struct platform_device shakira_reset_keys_device = {
+	.name = KEYRESET_NAME,
+	.dev	= {
+		.platform_data = &shakira_reset_keys_pdata,
+	},
+};
+#endif
 
 static struct platform_device seport_platform_device = {
 	.name = SEPORT_DRIVER_NAME,
@@ -2612,6 +2636,9 @@ static void __init msm7x2x_init(void)
 	i2c_register_board_info(0, i2c_devices, ARRAY_SIZE(i2c_devices));
 
 	platform_device_register(get_keypad_device_delta());
+#ifdef CONFIG_MACH_MSM7X27_SHAKIRA
+	platform_device_register(&shakira_reset_keys_device);
+#endif
 	msm_fb_add_devices();
 	rmt_storage_add_ramfs();
 	msm7x2x_init_mmc();
