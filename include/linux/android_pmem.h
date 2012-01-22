@@ -1,7 +1,7 @@
 /* include/linux/android_pmem.h
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -59,6 +59,8 @@
 #define PMEM_CLEAN_CACHES	_IOW(PMEM_IOCTL_MAGIC, 12, unsigned int)
 #define PMEM_INV_CACHES		_IOW(PMEM_IOCTL_MAGIC, 13, unsigned int)
 
+#define PMEM_GET_FREE_SPACE	_IOW(PMEM_IOCTL_MAGIC, 14, unsigned int)
+#define PMEM_ALLOCATE_ALIGNED	_IOW(PMEM_IOCTL_MAGIC, 15, unsigned int)
 struct pmem_region {
 	unsigned long offset;
 	unsigned long len;
@@ -68,6 +70,16 @@ struct pmem_addr {
 	unsigned long vaddr;
 	unsigned long offset;
 	unsigned long length;
+};
+
+struct pmem_freespace {
+	unsigned long total;
+	unsigned long largest;
+};
+
+struct pmem_allocation {
+	unsigned long size;
+	unsigned int align;
 };
 
 #ifdef __KERNEL__
@@ -89,6 +101,7 @@ enum pmem_allocator_type {
 	 * defined
 	 */
 	PMEM_ALLOCATORTYPE_BITMAP = 0, /* forced to be zero here */
+	PMEM_ALLOCATORTYPE_SYSTEM,
 
 	PMEM_ALLOCATORTYPE_ALLORNOTHING,
 	PMEM_ALLOCATORTYPE_BUDDYBESTFIT,
