@@ -34,7 +34,7 @@
 #include <linux/bootmem.h>
 #include "internal.h"
 
-int sysctl_vfs_cache_pressure __read_mostly = 100;
+int sysctl_vfs_cache_pressure __read_mostly = 25;
 EXPORT_SYMBOL_GPL(sysctl_vfs_cache_pressure);
 
  __cacheline_aligned_in_smp DEFINE_SPINLOCK(dcache_lock);
