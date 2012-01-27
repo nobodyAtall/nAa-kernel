@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Linux kernel version: 2.6.29.6
-# Sat Jan 21 11:36:09 2012
+# Wed Jan 25 22:41:46 2012
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -123,9 +123,9 @@ CONFIG_IOSCHED_BFQ=y
 # CONFIG_DEFAULT_AS is not set
 # CONFIG_DEFAULT_DEADLINE is not set
 # CONFIG_DEFAULT_CFQ is not set
-CONFIG_DEFAULT_BFQ=y
-# CONFIG_DEFAULT_NOOP is not set
-CONFIG_DEFAULT_IOSCHED="bfq"
+# CONFIG_DEFAULT_BFQ is not set
+CONFIG_DEFAULT_NOOP=y
+CONFIG_DEFAULT_IOSCHED="noop"
 CONFIG_FREEZER=y
 
 #
@@ -929,7 +929,7 @@ CONFIG_INPUT=y
 # CONFIG_INPUT_JOYDEV is not set
 CONFIG_INPUT_EVDEV=y
 # CONFIG_INPUT_EVBUG is not set
-# CONFIG_INPUT_KEYRESET is not set
+CONFIG_INPUT_KEYRESET=y
 
 #
 # Input Device Drivers
