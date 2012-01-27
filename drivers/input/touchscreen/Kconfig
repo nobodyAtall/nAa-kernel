@@ -235,7 +235,13 @@ config TOUCHSCREEN_SYNAPTICS_I2C_RMI_4X_DT
         tristate "Synaptics i2c touchscreen RMI 4.x DT"
         depends on I2C
         help
-          This enables support for Synaptics RMI 4.x DT over I2C based touchscreens.
+          This module enables dual touch support (by dx) for Synaptics RMI 4.x DT over I2C based touchscreens.
+
+config TOUCHSCREEN_SYNAPTICS_I2C_RMI_4X_NO_DT
+        tristate "Synaptics i2c touchscreen RMI 4.x no DT"
+        depends on I2C
+        help
+          This module disables any dual touch support for Synaptics RMI 4.x DT over I2C based touchscreens.
 
 config TOUCHSCREEN_TOUCHRIGHT
 	tristate "Touchright serial touchscreen"
