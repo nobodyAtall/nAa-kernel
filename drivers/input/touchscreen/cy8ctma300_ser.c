@@ -667,18 +667,16 @@ static int cy8ctma300_setup_input_device(struct cy8_ser *cy8_ser)
 	set_bit(EV_KEY, input_dev->evbit);
 	set_bit(EV_ABS, input_dev->evbit);
 
-	input_set_abs_params(input_dev, ABS_X, 0, cy8_ser->sysinfo.max_x ,
-			     0, 0);
-	input_set_abs_params(input_dev, ABS_Y, 0, cy8_ser->sysinfo.max_y ,
-			     0, 0);
+	input_set_abs_params(input_dev, ABS_X, -1, cy8_ser->sysinfo.max_x + 1, 0, 0);
+	input_set_abs_params(input_dev, ABS_Y, -1, cy8_ser->sysinfo.max_y + 1, 0, 0);
+
 	input_set_abs_params(input_dev, ABS_TOOL_WIDTH, 0, 64, 0, 0);
 	input_set_abs_params(input_dev, ABS_PRESSURE, 0, 128, 0, 0);
 	
 	// dx : we have mt support
-	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, cy8_ser->sysinfo.max_x ,
-			     0, 0);
-	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, cy8_ser->sysinfo.max_y ,
-			     0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_X, -1, cy8_ser->sysinfo.max_x + 1, 0, 0);
+	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, -1, cy8_ser->sysinfo.max_y + 1, 0, 0);
+
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MAJOR, 0, 32, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_WIDTH_MAJOR, 0, 32, 0, 0);
 	
