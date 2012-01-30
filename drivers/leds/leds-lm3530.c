@@ -5,6 +5,7 @@
  * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  * License terms: GNU General Public License (GPL) version 2
  * Author: Aleksej Makarov <aleksej.makarov@sonyericsson.com>
+ * Modified by: Vassilis Tsogkas <nAa @ xda>
  *
  *
  */
@@ -24,6 +25,7 @@
 #include <linux/workqueue.h>
 #include <linux/earlysuspend.h>
 #include <linux/leds-lm3530.h>
+#include <linux/input.h>
 
 #define DBG(X) /*X*/
 
@@ -235,6 +237,8 @@ struct lm3530_data {
 	int (*power_up)(int enable);
 	int suspended:1;
 };
+
+struct input_dev *light_dev;
 
 #define LOCK(p) do { \
 	DBG(printk("%s: lock\n", __func__);) \
@@ -591,13 +595,20 @@ static void als_zone_int_bh(struct work_struct *work)
 {
 	struct lm3530_data *data =
 			container_of(work, struct lm3530_data, als_work);
-
+	u8 als_value;
 	DBG(printk(KERN_DEBUG "%s: %s\n", DRV_NAME, __func__);)
 
 	LOCK(data);
 	data->als_zone = lm3530_als_get(data->client);
 	DBG(printk(KERN_DEBUG "lm3530 interrupt: als zone changed to %d\n",
 			   data->als_zone);)
+	if (0 == data->als_zone)
+		als_value = 0;
+	else
+		als_value = data->shadow[ZBOUNDARY0 + data->als_zone - 1];
+	//printk("lm3530 reporting: zone: %d value: %d\n", data->als_zone, als_value);
+	input_report_abs(light_dev, ABS_DISTANCE, (int)data->als_zone);
+	input_sync(light_dev);
 	UNLOCK(data);
 	sysfs_notify(&data->client->dev.kobj, NULL, "als::value");
 	lm3530_update_brightness(data->client);
@@ -1084,6 +1095,31 @@ static void lm3530_data_init(struct lm3530_data *data,
 		INIT_WORK(&data->als_work, als_zone_int_bh);
 }
 
+static int light_dev_init(void)
+{
+	int err = 0;
+    light_dev = input_allocate_device();
+	if (!light_dev) {
+		printk(KERN_DEBUG "%s: %s input_allocate_device failed\n", DRV_NAME, __func__);
+		return -1;
+	}
+	light_dev->name = "lightsensor";
+	light_dev->phys = "/sys/devices/platform/pmic-lightsensor";
+	light_dev->id.vendor = 0x0001;
+	light_dev->id.product = 1;
+	light_dev->id.version = 1;
+	light_dev->id.bustype = BUS_I2C;
+	set_bit(EV_ABS, light_dev->evbit);
+	set_bit(ABS_DISTANCE, light_dev->absbit);
+	input_set_abs_params(light_dev, ABS_DISTANCE, 0, 5, 0, 0);
+    err = input_register_device(light_dev);
+    if (err) {
+		printk(KERN_DEBUG "%s: %s input_register_device failed\n", DRV_NAME, __func__);
+		return -1;
+    }
+    return 0;
+}
+
 static int __devinit lm3530_probe(struct i2c_client *client,
 				  const struct i2c_device_id *id)
 {
@@ -1114,7 +1150,7 @@ static int __devinit lm3530_probe(struct i2c_client *client,
 	}
 	data->client = client;
 	i2c_set_clientdata(client, data);
-
+	light_dev_init();
 	lm3530_data_init(data, pdata);
 
 	result = lm3530_setup_gpio_pins(data);
@@ -1152,7 +1188,6 @@ static int __devinit lm3530_probe(struct i2c_client *client,
 	data->als_zone = lm3530_als_get(client);
 	data->brightness = 102;
 	lm3530_update_brightness(client);
-
 #if defined(CONFIG_HAS_EARLYSUSPEND) && defined(CONFIG_LEDS_LM3530_EARLY_SUSPEND)
 	data->suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB;
 	data->suspend.suspend = lm3530_early_suspend;
@@ -1225,7 +1260,7 @@ static void __exit lm3530_exit(void)
 module_init(lm3530_init);
 module_exit(lm3530_exit);
 
-MODULE_AUTHOR("Aleksej Makarov (aleksej.makarov@sonyericsson.com)");
+MODULE_AUTHOR("Aleksej Makarov (aleksej.makarov@sonyericsson.com), modified by nAa @ xda");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("LM3530 led driver");
 

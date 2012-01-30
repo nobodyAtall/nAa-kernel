@@ -5,6 +5,7 @@
  * Copyright (C) 2010 Sony Ericsson Mobile Communications AB.
  *
  * Author: Aleksej Makarov <aleksej.makarov@sonyericsson.com>
+ * Modified by: Vassilis Tsogkas <nAa @ xda>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2, as
@@ -15,6 +16,7 @@
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/init.h>
+#include <linux/input.h>
 #include <linux/delay.h>
 #include <linux/timer.h>
 #include <linux/mutex.h>
@@ -55,6 +57,8 @@ struct proximity_data_t {
 
 static struct proximity_data_t proximity;
 
+struct input_dev *prox_dev;
+
 static 	int proximity_sensor_value_changed_cb(
 			   struct oem_rapi_client_streaming_func_cb_arg *arg,
 		       struct oem_rapi_client_streaming_func_cb_ret *ret)
@@ -76,6 +80,9 @@ static 	int proximity_sensor_value_changed_cb(
 		LOCK();
 		proximity.sensor_value = args->sensor_value;
 		proximity.adc_value = args->adc_value;
+		input_report_abs(prox_dev, ABS_DISTANCE,
+				 args->sensor_value == 0 ? 1 : 0);
+		input_sync(prox_dev);
 		UNLOCK();
 		sysfs_notify(&proximity.semc_dev.dev->kobj, NULL, "sensor");
 	} else {
@@ -457,10 +464,38 @@ static struct platform_driver proximity_driver = {
 	},
 };
 
+static int prox_dev_init(void)
+{
+	int err = 0;
+    prox_dev = input_allocate_device();
+	if (!prox_dev) {
+		printk(KERN_DEBUG "%s: %s input_allocate_device failed\n", DEV_NAME, __func__);
+		return -1;
+	}
+	prox_dev->name = "proximity";
+	prox_dev->phys = "/sys/devices/platform/proximity-sensor/semc/proximity-sensor";
+	prox_dev->id.vendor = 0x0001;
+	prox_dev->id.product = 1;
+	prox_dev->id.version = 1;
+	prox_dev->id.bustype = BUS_I2C;
+	set_bit(EV_ABS, prox_dev->evbit);
+	set_bit(ABS_DISTANCE, prox_dev->absbit);
+	input_set_abs_params(prox_dev, ABS_DISTANCE, 0, 1, 0, 0);
+    err = input_register_device(prox_dev);
+    if (err) {
+		printk(KERN_DEBUG "%s: %s input_register_device failed\n", DEV_NAME, __func__);
+		return -1;
+    }
+    return 0;
+}
+
 static int __init proximity_driver_init(void)
 {
 	int rc = platform_driver_register(&proximity_driver);
 	DBG(printk(KERN_DEBUG "%s: %s rc=%d\n", DEV_NAME, __func__, rc);)
+	int rc2 = prox_dev_init();
+	if (rc2 < 0)
+		printk(KERN_DEBUG "%s: %s rc2=%d\n", DEV_NAME, __func__, rc2);
 	return rc;
 }
 module_init(proximity_driver_init);
@@ -471,7 +506,7 @@ static void __exit proximity_driver_exit(void)
 }
 module_exit(proximity_driver_exit);
 
-MODULE_AUTHOR("Aleksej Makarov (aleksej.makarov@sonyericsson.com)");
+MODULE_AUTHOR("Aleksej Makarov (aleksej.makarov@sonyericsson.com), modified by nAa @ xda");
 MODULE_DESCRIPTION("delta proximity sensor driver");
 MODULE_LICENSE("GPL");
 
