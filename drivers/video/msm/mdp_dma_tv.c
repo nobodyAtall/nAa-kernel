@@ -145,7 +145,7 @@ int mdp_dma3_off(struct platform_device *pdev)
 	mdp_pipe_ctrl(MDP_DMA3_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
 	/* delay to make sure the last frame finishes */
-	mdelay(16);
+	mdelay(100);
 
 	return ret;
 }
