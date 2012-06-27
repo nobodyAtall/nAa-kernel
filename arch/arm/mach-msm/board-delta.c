@@ -113,8 +113,8 @@
 #ifdef CONFIG_SEMC_GPIO_EXTR
 #include  <linux/semc/semc_gpio_extr.h>
 #endif
-#define MSM_PMEM_MDP_SIZE	0xC74000
-#define MSM_PMEM_ADSP_SIZE	0x900000
+#define MSM_PMEM_MDP_SIZE	0xC3D000
+#define MSM_PMEM_ADSP_SIZE	0x8DE000
 #ifdef CONFIG_CAPTURE_KERNEL
 #include "smd_private.h"
 #endif
